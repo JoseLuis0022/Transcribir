@@ -387,6 +387,13 @@ variables de entorno.
 **El umbral por defecto de Sherpa (0,5) junta voces distintas.** Calibrado con
 diálogos y monólogos, el rango bueno es 0,30–0,35: la app usa 0,33.
 
+**Sherpa-ONNX no suelta el intérprete de Python mientras trabaja.** En el mismo
+proceso que la interfaz, la ventana se congelaba hasta 17 segundos seguidos
+justo después del 100 %. Por eso la separación corre en un proceso aparte —la
+propia app lanzada con `--separar`—, que informa su avance por su salida y se
+cancela al instante. Y como Sherpa usa un solo núcleo si no se le indica otra
+cosa, se le dan ocho: pasa de ~200 s a ~56 s para seis minutos de audio.
+
 **Algunas librerías de Homebrew no se dejan firmar.** `liblzma` quedaba con un
 formato que `codesign` rechaza, y una firma rota hace que macOS diga que la app
 "está dañada". Como la app no usa `lzma`, se excluye, y la construcción verifica
