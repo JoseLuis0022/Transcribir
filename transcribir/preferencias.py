@@ -7,11 +7,13 @@ from pathlib import Path
 
 from Foundation import NSBundle, NSUserDefaults
 
-ID_APP = "local.transcribir"
+from identidad import ID_ANTERIOR, ID_APP
+
 ESCRITORIO = Path.home() / "Desktop"
 
 IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
+PERSONAS = "personas"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
 AVISO_CADA, AVISO_COLA, AVISO_ERRORES, AVISO_SONIDO = (
     "avisos_cada_archivo", "avisos_cola", "avisos_errores", "avisos_sonido")
@@ -22,6 +24,7 @@ ESQUEMA = {
     PRECISION: ("alta", ("alta", "rapida")),
     VOCABULARIO: ("", str),
     FORMATO: ("parrafos", ("parrafos", "tiempos", "srt")),
+    PERSONAS: (False, bool),
     GUARDAR: ("carpeta", ("carpeta", "junto")),
     CARPETA: (str(ESCRITORIO), str),
     AL_TERMINAR: ("nada", ("nada", "finder", "abrir")),
@@ -34,7 +37,7 @@ ESQUEMA = {
 }
 
 # Opciones de cada trabajo (un agente puede cambiarlas solo para su petición).
-DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, GUARDAR, CARPETA)
+DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, PERSONAS, GUARDAR, CARPETA)
 
 ETIQUETAS = {
     IDIOMA: {"es": "Español", "en": "Inglés", "auto": "Detectar automáticamente"},
@@ -58,8 +61,23 @@ def en_app() -> bool:
     return NSBundle.mainBundle().bundleIdentifier() == ID_APP
 
 
+BIENVENIDA, HEREDADOS = "bienvenidaHecha", "ajustesHeredados"
+
+
 def registrar() -> None:
     d = _d()
+    if en_app() and not d.boolForKey_(HEREDADOS):
+        # una sola vez: los ajustes de la versión de desarrollo, que tenía otro identificador
+        anterior = NSUserDefaults.alloc().initWithSuiteName_(ID_ANTERIOR)
+        heredados = 0
+        for clave in list(ESQUEMA) + list(ANTIGUAS):
+            valor = anterior.objectForKey_(clave)
+            if valor is not None and d.objectForKey_(clave) is None:
+                d.setObject_forKey_(valor, clave)
+                heredados += 1
+        if heredados:
+            d.setBool_forKey_(True, BIENVENIDA)          # ya la usaba: sin bienvenida
+        d.setBool_forKey_(True, HEREDADOS)
     for vieja, nueva in ANTIGUAS.items():
         valor = d.objectForKey_(vieja)
         if valor is not None:
@@ -67,6 +85,14 @@ def registrar() -> None:
                 d.setObject_forKey_(valor, nueva)
             d.removeObjectForKey_(vieja)
     d.registerDefaults_({k: v[0] for k, v in ESQUEMA.items()})
+
+
+def bienvenida_hecha() -> bool:
+    return bool(_d().boolForKey_(BIENVENIDA))
+
+
+def marcar_bienvenida() -> None:
+    _d().setBool_forKey_(True, BIENVENIDA)
 
 
 def leer(clave):
