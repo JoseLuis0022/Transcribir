@@ -347,14 +347,15 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
     @objc.python_method
     def botonEncabezado(self, simbolo, y, posicion, accion, ayuda):
         """Botón de un encabezado de sección; `posicion` 0 es el de más a la derecha.
-        Todos iguales (símbolo relleno en círculo, 14 pt) y centrados con el título."""
-        x = PAD + CW - BOTON - posicion * (BOTON + 6)
+        Todos iguales (símbolo relleno en círculo, 14 pt), centrados con el título y en la
+        misma vertical que los botones de las filas, que van 16 pt hacia dentro de la tarjeta."""
+        x = PAD + CW - 16 - BOTON - posicion * (BOTON + 6)
         return ui.symbol_button(simbolo, NSMakeRect(x, y - 2, BOTON, BOTON), self, accion,
                                 tooltip=ayuda, size=14.0, tint=NSColor.secondaryLabelColor())
 
     @objc.python_method
     def contador(self, fondo, y, botones):
-        derecha = PAD + CW - botones * (BOTON + 6)
+        derecha = PAD + CW - 16 - botones * (BOTON + 6)
         etiqueta = ui.label("", 11.5, ui.W_SEMIBOLD, NSColor.tertiaryLabelColor(),
                             NSMakeRect(derecha - 60, y, 60, 16), ui.ALIGN_RIGHT)
         fondo.addSubview_(etiqueta)
