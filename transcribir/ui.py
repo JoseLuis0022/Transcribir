@@ -1,0 +1,232 @@
+"""Piezas de interfaz nativas (AppKit), con el mismo lenguaje visual que Sereno."""
+
+import warnings
+
+import objc
+
+# Importar Quartz registra CGColorRef como tipo real. Sin esto, NSColor.CGColor()
+# devuelve un puntero opaco y Core Animation aborta al animar un color.
+import Quartz  # noqa: F401
+
+warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
+
+from AppKit import (  # noqa: E402
+    NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenuItem, NSMutableParagraphStyle,
+    NSPopUpButton, NSTextField, NSView,
+)
+from Foundation import NSAttributedString, NSMakeRect  # noqa: E402
+
+try:  # macOS unifica NSTextAlignment con UIKit: left=0, center=1, right=2
+    from AppKit import (NSTextAlignmentCenter as ALIGN_CENTER,
+                        NSTextAlignmentLeft as ALIGN_LEFT,
+                        NSTextAlignmentRight as ALIGN_RIGHT)
+except ImportError:
+    ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT = 0, 1, 2
+
+STYLE_TITLED, STYLE_CLOSABLE, STYLE_MINI = 1, 2, 4
+STYLE_FULL_CONTENT = 1 << 15
+IMG_SCALE_PROPORTIONAL = 3
+IMAGE_ONLY = 1
+BLEND_BEHIND_WINDOW, VFX_ACTIVE, MATERIAL_UNDER_WINDOW = 0, 1, 21
+W_REGULAR, W_MEDIUM, W_SEMIBOLD = 0.0, 0.23, 0.3
+TRUNC_TAIL, TRUNC_MIDDLE = 4, 5
+
+CAGradientLayer = objc.lookUpClass("CAGradientLayer")
+CATransaction = objc.lookUpClass("CATransaction")
+CABasicAnimation = objc.lookUpClass("CABasicAnimation")
+CAMediaTimingFunction = objc.lookUpClass("CAMediaTimingFunction")
+
+
+class VistaVolteada(NSView):
+    """Documento de las listas: se llena de arriba hacia abajo."""
+
+    def isFlipped(self):
+        return True
+
+
+def sf(name, size, weight=W_MEDIUM):
+    """Un símbolo del sistema, a un tamaño concreto."""
+    img = NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
+    if img is None:
+        return None
+    try:
+        cfg = objc.lookUpClass("NSImageSymbolConfiguration")
+        img = img.imageWithSymbolConfiguration_(
+            cfg.configurationWithPointSize_weight_scale_(size, weight, 3))
+    except Exception:
+        pass
+    return img
+
+
+def icon_view(name, frame, color, size=15.0):
+    v = NSImageView.alloc().initWithFrame_(frame)
+    v.setImageScaling_(IMG_SCALE_PROPORTIONAL)
+    v.setContentTintColor_(color)
+    img = sf(name, size)
+    if img is not None:
+        v.setImage_(img)
+    return v
+
+
+def label(text, size, weight, color, frame, align=ALIGN_CENTER, truncate=None):
+    """Texto fijo. `truncate` (TRUNC_TAIL / TRUNC_MIDDLE) lo deja en una línea."""
+    f = NSTextField.alloc().initWithFrame_(frame)
+    f.setStringValue_(text)
+    f.setBezeled_(False)
+    f.setDrawsBackground_(False)
+    f.setEditable_(False)
+    f.setSelectable_(False)
+    f.setAlignment_(align)
+    f.setFont_(NSFont.systemFontOfSize_weight_(size, weight))
+    f.setTextColor_(color)
+    if truncate is None:
+        f.cell().setWraps_(True)
+    else:
+        f.cell().setWraps_(False)
+        f.cell().setUsesSingleLineMode_(True)
+        f.cell().setLineBreakMode_(truncate)
+    return f
+
+
+def section_title(text, frame):
+    """Encabezado de sección, al estilo de Ajustes del Sistema."""
+    return label(text, 11.5, W_SEMIBOLD, NSColor.secondaryLabelColor(), frame, ALIGN_LEFT)
+
+
+def continuous(layer, radius):
+    layer.setCornerRadius_(radius)
+    if hasattr(layer, "setCornerCurve_"):
+        try:
+            layer.setCornerCurve_("continuous")   # squircle de Apple
+        except Exception:
+            pass
+
+
+def rounded(frame, radius, fill=None, border=None):
+    v = NSView.alloc().initWithFrame_(frame)
+    v.setWantsLayer_(True)
+    continuous(v.layer(), radius)
+    if fill is not None:
+        v.layer().setBackgroundColor_(fill.CGColor())
+    if border is not None:
+        v.layer().setBorderWidth_(1.0)
+        v.layer().setBorderColor_(border.CGColor())
+    return v
+
+
+def card(frame, radius=12.0):
+    return rounded(frame, radius,
+                   fill=NSColor.controlBackgroundColor().colorWithAlphaComponent_(0.6),
+                   border=NSColor.separatorColor())
+
+
+def gradient_view(frame, radius, colors, start=(0.0, 1.0), end=(1.0, 0.0)):
+    v = NSView.alloc().initWithFrame_(frame)
+    lay = CAGradientLayer.layer()
+    lay.setColors_([c.CGColor() for c in colors])
+    lay.setStartPoint_(start)
+    lay.setEndPoint_(end)
+    lay.setMasksToBounds_(True)
+    continuous(lay, radius)
+    v.setLayer_(lay)
+    v.setWantsLayer_(True)
+    return v
+
+
+def hairline(frame):
+    v = NSView.alloc().initWithFrame_(frame)
+    v.setWantsLayer_(True)
+    v.layer().setBackgroundColor_(NSColor.separatorColor().CGColor())
+    return v
+
+
+def attributed(text, size, weight, color, align=ALIGN_CENTER):
+    para = NSMutableParagraphStyle.alloc().init()
+    para.setAlignment_(align)
+    return NSAttributedString.alloc().initWithString_attributes_(
+        text, {"NSFont": NSFont.systemFontOfSize_weight_(size, weight),
+               "NSColor": color, "NSParagraphStyle": para})
+
+
+def bezel_button(title, frame, target, action, tag=0, size=12.0):
+    b = NSButton.alloc().initWithFrame_(frame)
+    b.setBezelStyle_(1)
+    b.setAttributedTitle_(attributed(title, size, W_REGULAR, NSColor.labelColor()))
+    b.setTarget_(target)
+    b.setAction_(action)
+    b.setTag_(tag)
+    return b
+
+
+def symbol_button(name, frame, target, action, tag=0, tooltip=None, size=13.0, tint=None):
+    """Botón sin borde con un símbolo del sistema."""
+    b = NSButton.alloc().initWithFrame_(frame)
+    b.setBordered_(False)
+    b.setImagePosition_(IMAGE_ONLY)
+    img = sf(name, size)
+    if img is not None:
+        b.setImage_(img)
+    b.setTarget_(target)
+    b.setAction_(action)
+    b.setTag_(tag)
+    if tooltip:
+        b.setToolTip_(tooltip)
+    if tint is not None:
+        b.setContentTintColor_(tint)
+    return b
+
+
+def popup(frame, titles, target, action, tag=0):
+    """Menú desplegable de una sola elección."""
+    p = NSPopUpButton.alloc().initWithFrame_pullsDown_(frame, False)
+    p.addItemsWithTitles_(titles)
+    p.setTarget_(target)
+    p.setAction_(action)
+    p.setTag_(tag)
+    return p
+
+
+def text_field(frame, placeholder, target, action, tag=0):
+    """Campo editable; su acción salta al pulsar Intro o al salir del campo."""
+    f = NSTextField.alloc().initWithFrame_(frame)
+    f.setPlaceholderString_(placeholder)
+    f.setBezeled_(True)
+    f.setBezelStyle_(1)                      # redondeado
+    f.setFont_(NSFont.systemFontOfSize_(12.0))
+    f.setTarget_(target)
+    f.setAction_(action)
+    f.setTag_(tag)
+    f.cell().setSendsActionOnEndEditing_(True)
+    f.cell().setUsesSingleLineMode_(True)
+    f.cell().setScrollable_(True)
+    return f
+
+
+def pill(text, symbol, color):
+    """Etiqueta breve con fondo tenue: quién pidió un trabajo. Se coloca con setFrameOrigin_."""
+    text_w = attributed(text, 10.5, W_SEMIBOLD, color).size().width
+    v = rounded(NSMakeRect(0, 0, text_w + 26, 16), 8.0, fill=color.colorWithAlphaComponent_(0.16))
+    v.addSubview_(icon_view(symbol, NSMakeRect(6, 3, 10, 10), color, 8.5))
+    v.addSubview_(label(text, 10.5, W_SEMIBOLD, color, NSMakeRect(17, 0, text_w + 6, 15), ALIGN_LEFT))
+    return v
+
+
+def menu_item(title, action, key, target=None, modifiers=None):
+    it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+    if target is not None:
+        it.setTarget_(target)
+    if modifiers is not None:
+        it.setKeyEquivalentModifierMask_(modifiers)
+    return it
+
+
+def pulse(key_path, start, end, seconds):
+    """Animación de ida y vuelta, en bucle: el resplandor del disco."""
+    a = CABasicAnimation.animationWithKeyPath_(key_path)
+    a.setFromValue_(start)
+    a.setToValue_(end)
+    a.setDuration_(seconds)
+    a.setAutoreverses_(True)
+    a.setRepeatCount_(float("inf"))
+    a.setTimingFunction_(CAMediaTimingFunction.functionWithName_("easeInEaseOut"))
+    return a
