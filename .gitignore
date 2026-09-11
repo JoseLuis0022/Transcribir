@@ -16,3 +16,6 @@ dist/
 
 # macOS
 .DS_Store
+
+# imágenes de disco para compartir
+*.dmg
