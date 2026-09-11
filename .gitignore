@@ -1,0 +1,18 @@
+# entorno de Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# modelos descargados de Hugging Face (varios GB; se bajan con `hf download`)
+modelos/
+
+# bundle generado por scripts/construir.sh
+Transcribir.app/
+*.iconset/
+
+# artefactos de py2app
+build/
+dist/
+
+# macOS
+.DS_Store

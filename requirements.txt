@@ -1,0 +1,7 @@
+mlx-qwen3-asr
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
+pyobjc-framework-UserNotifications
+pillow
+py2app
+setuptools
