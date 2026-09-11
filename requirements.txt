@@ -2,6 +2,8 @@ mlx-qwen3-asr
 pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
 pyobjc-framework-UserNotifications
+pyobjc-framework-AVFoundation
+pyobjc-framework-CoreMedia
 pillow
 py2app
 setuptools

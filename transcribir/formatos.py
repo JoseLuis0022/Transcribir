@@ -1,4 +1,4 @@
-"""Cómo se escribe cada transcripción: párrafos, párrafos con tiempos o subtítulos."""
+"""Cómo se escribe cada transcripción: párrafos, con tiempos, por persona o subtítulos."""
 
 import re
 
@@ -52,6 +52,24 @@ def palabras_con_tiempo(texto: str, segmentos: list[dict]) -> list[tuple[str, fl
     return salida
 
 
+def asignar_personas(palabras: list[tuple[str, float, float]], turnos: list[tuple[float, float, int]]) -> list[int]:
+    """Número de persona de cada palabra (desde 1, en orden de aparición)."""
+    if not turnos:
+        return [1] * len(palabras)
+    crudas = []
+    for _, t0, t1 in palabras:
+        centro = (t0 + t1) / 2
+        turno = min(turnos, key=lambda t: 0.0 if t[0] <= centro <= t[1]
+                    else min(abs(centro - t[0]), abs(centro - t[1])))
+        crudas.append(turno[2])
+    # una palabra suelta entre dos de la misma persona es ruido del borde de un turno
+    for i in range(1, len(crudas) - 1):
+        if crudas[i - 1] == crudas[i + 1] != crudas[i]:
+            crudas[i] = crudas[i - 1]
+    orden: dict[int, int] = {}
+    return [orden.setdefault(p, len(orden) + 1) for p in crudas]
+
+
 def _reloj(segundos: float, srt: bool = False) -> str:
     ms = int(round(max(segundos, 0.0) * 1000))
     h, ms = divmod(ms, 3_600_000)
@@ -62,11 +80,8 @@ def _reloj(segundos: float, srt: bool = False) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
-def con_tiempos(texto: str, segmentos: list[dict], bloque: float = 30.0) -> str:
+def con_tiempos(palabras: list[tuple[str, float, float]], bloque: float = 30.0) -> str:
     """Párrafos de ~30 s que empiezan con su marca de tiempo: «[02:15] Texto…»."""
-    palabras = palabras_con_tiempo(texto, segmentos)
-    if not palabras:
-        raise ValueError("No se pudieron calcular las marcas de tiempo")
     parrafos, actual, inicio = [], [], None
     for palabra, t0, t1 in palabras:
         inicio = t0 if inicio is None else inicio
@@ -77,6 +92,26 @@ def con_tiempos(texto: str, segmentos: list[dict], bloque: float = 30.0) -> str:
             actual, inicio = [], None
     if actual:
         parrafos.append(f"[{_reloj(inicio)}] {' '.join(actual)}")
+    return "\n\n".join(parrafos)
+
+
+def con_personas(palabras: list[tuple[str, float, float]], personas: list[int],
+                 con_marca: bool = False, largo: int = 600) -> str:
+    """Un párrafo por intervención: «Persona 1: …», o «[02:15] Persona 1: …» con tiempos."""
+    parrafos, actual, quien, inicio = [], [], None, 0.0
+
+    def cerrar():
+        if actual:
+            marca = f"[{_reloj(inicio)}] " if con_marca else ""
+            parrafos.append(f"{marca}Persona {quien}: {' '.join(actual)}")
+
+    for (palabra, t0, _), persona in zip(palabras, personas):
+        largo_actual = len(" ".join(actual))
+        if persona != quien or (largo_actual >= largo and FIN_ORACION.search(actual[-1])):
+            cerrar()
+            actual, quien, inicio = [], persona, t0
+        actual.append(palabra)
+    cerrar()
     return "\n\n".join(parrafos)
 
 
@@ -92,21 +127,21 @@ def _dos_lineas(texto: str, ancho: int = 42) -> str:
     return f"{texto[:corte]}\n{texto[corte + 1:]}"
 
 
-def a_srt(texto: str, segmentos: list[dict], max_chars: int = 84, max_seg: float = 6.0) -> str:
-    """Subtítulos: hasta dos líneas de ~42 caracteres y 6 s, cortando en la puntuación."""
-    palabras = palabras_con_tiempo(texto, segmentos)
-    if not palabras:
-        raise ValueError("No se pudieron calcular los tiempos de los subtítulos")
-
+def a_srt(palabras: list[tuple[str, float, float]], personas: list[int] | None = None,
+          max_chars: int = 84, max_seg: float = 6.0) -> str:
+    """Subtítulos: hasta dos líneas de ~42 caracteres y 6 s, cortando en la puntuación
+    y, si hay personas, en cada cambio de quien habla («Persona 2: …»)."""
     def unir(bloque):
-        return " ".join(p for p, _, _ in bloque)
+        return " ".join(p for p, _, _, _ in bloque)
 
     grupos, actual = [], []
-    for palabra, t0, t1 in palabras:
-        if actual and (len(f"{unir(actual)} {palabra}") > max_chars or t1 - actual[0][1] > max_seg):
+    for i, (palabra, t0, t1) in enumerate(palabras):
+        quien = personas[i] if personas else None
+        if actual and (len(f"{unir(actual)} {palabra}") > max_chars or t1 - actual[0][1] > max_seg
+                       or quien != actual[0][3]):
             grupos.append(actual)
             actual = []
-        actual.append((palabra, t0, t1))
+        actual.append((palabra, t0, t1, quien))
         largo = len(unir(actual))
         if (FIN_ORACION.search(palabra) and largo >= 25) or (palabra.endswith(",") and largo >= 60):
             grupos.append(actual)
@@ -121,6 +156,8 @@ def a_srt(texto: str, segmentos: list[dict], max_chars: int = 84, max_seg: float
         if i + 1 < len(grupos):
             fin = min(fin, grupos[i + 1][0][1])          # sin solaparse con el siguiente
         fin = max(fin, inicio + 0.05)
-        bloques.append(f"{i + 1}\n{_reloj(inicio, True)} --> {_reloj(fin, True)}\n"
-                       f"{_dos_lineas(unir(grupo))}")
+        texto = unir(grupo)
+        if grupo[0][3] is not None:
+            texto = f"Persona {grupo[0][3]}: {texto}"
+        bloques.append(f"{i + 1}\n{_reloj(inicio, True)} --> {_reloj(fin, True)}\n{_dos_lineas(texto)}")
     return "\n\n".join(bloques)

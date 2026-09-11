@@ -20,11 +20,16 @@ from AppKit import (  # noqa: E402
 from Foundation import NSURL, NSMakeRect, NSObject  # noqa: E402
 from PyObjCTools import AppHelper  # noqa: E402
 
+import agentes  # noqa: E402
 import avisos  # noqa: E402
+import modelos  # noqa: E402
 import preferencias as pref  # noqa: E402
+import recursos  # noqa: E402
 import servidor  # noqa: E402
 import ui  # noqa: E402
 from ajustes import ControladorAjustes  # noqa: E402
+from bienvenida import Bienvenida  # noqa: E402
+from identidad import COMPILACION, NOMBRE, REPO, VERSION  # noqa: E402
 from motor import EXTENSIONES, Motor, Trabajo  # noqa: E402
 from vigia import Vigia  # noqa: E402
 
@@ -104,6 +109,8 @@ class FondoArrastrable(NSVisualEffectView):
         return [Path(u.path()) for u in urls]
 
     def draggingEntered_(self, sender):
+        if self.dueno.bienvenida is not None:          # primero hay que descargar el modelo
+            return 0
         if any(r.is_dir() or r.suffix.lower() in EXTENSIONES for r in self.rutas(sender)):
             self.dueno.arrastrando(True)
             return 1                                      # copiar
@@ -135,7 +142,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.cafeina = None
         self.lote_listos, self.lote_errores = [], 0   # lo terminado desde que se llenó la cola
         self.ventana_ajustes = None
-        self.glifos = {k: NSImage.alloc().initWithContentsOfFile_(str(AQUI / f"glifo-{k}.png"))
+        self.bienvenida = None
+        self.glifos = {k: NSImage.alloc().initWithContentsOfFile_(str(recursos.ruta(f"glifo-{k}.png")))
                        for k in ("on", "off")}
         avisos.ser_delegado(self)
         self.motor = Motor(self.alAvanzar, self.alTerminar, self.alFallar, self.alCancelar,
@@ -147,6 +155,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.pintarHechos()
         self.pintarPie()
         self.pintar()
+        if not pref.bienvenida_hecha() or modelos.ruta_local(pref.leer(pref.PRECISION)) is None:
+            self.mostrarBienvenida()
         self.vigia = Vigia(lambda rutas: self.encolar(rutas, cliente=VIGILADA))
         self.configurarVigia(rebaselinar=False)
         self.reloj_vigia = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
@@ -161,6 +171,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             self.ventana.makeKeyAndOrderFront_(None)
             NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         avisos.pedir_si_hace_falta()
+        self.refrescarConectorAgentes()
 
     def application_openFiles_(self, app, nombres):
         """Archivos abiertos con la app o soltados sobre su icono del Dock."""
@@ -289,6 +300,12 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.subtitulo = ui.label("", 13.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
                                   NSMakeRect(PAD + 12, y, CW - 24, 36))
         fondo.addSubview_(self.subtitulo)
+
+        # ---- listas y pie, en un contenedor que la bienvenida reemplaza
+        self.fondo = fondo
+        self.contenido = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, WIN_W, y))
+        fondo.addSubview_(self.contenido)
+        fondo = self.contenido
 
         # ---- en cola
         y -= 14.0 + 16.0
@@ -545,6 +562,14 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         listos = sum(1 for h in self.hechos if h["estado"] == "listo")
         errores = sum(1 for h in self.hechos if h["estado"] == "error")
 
+        if self.bienvenida is not None:
+            descargando = self.bienvenida.descargando
+            self.colorear("trabajo" if descargando else "reposo")
+            self.titulo.setStringValue_(f"Bienvenido a {NOMBRE}")
+            self.subtitulo.setStringValue_(
+                "Descargando el modelo: es la única vez que hace falta internet." if descargando
+                else "Convierte audio y video en texto, en tu Mac y sin internet.")
+            return
         if self.sobre:
             estado, titulo, sub = "trabajo", "Suelta para agregar", "Se transcribirán en orden, uno por uno."
         elif self.cola:
@@ -552,15 +577,21 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             if activa is None:
                 sub = "Empezando…"
             else:
-                avance = ("Preparando el modelo…" if activa["fraccion"] < 0
-                          else f"{round(activa['fraccion'] * 100)} %")
+                texto = activa.get("texto", "")
                 quien = ""
                 if activa["cliente"] == VIGILADA:
                     quien = "Carpeta vigilada · "
                 elif activa["cliente"]:
                     quien = f"{activa['cliente']} pidió "
-                sub = f"{quien}{corto(activa['ruta'].name, 30)} · {avance}"
-            if len(self.cola) > 1:
+                nombre = f"{quien}{corto(activa['ruta'].name, 30)}"
+                pct = round(activa["fraccion"] * 100)
+                if activa["fraccion"] < 0:
+                    sub = f"{nombre} · {texto or 'Preparando el modelo…'}"
+                elif texto.startswith("Descargando"):
+                    sub = f"{nombre}\n{texto} · {pct} %"
+                else:
+                    sub = f"{nombre} · {pct} %"
+            if len(self.cola) > 1 and "\n" not in sub:
                 sub += f"\n{len(self.cola) - 1} más en espera"
         elif listos or errores:
             estado = "listo" if listos else "reposo"
@@ -682,6 +713,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         item = next((c for c in self.cola if c["id"] == id_trabajo), None)
         if item is None or item.get("cancelando"):
             return
+        item["texto"] = texto
         antes, item["fraccion"] = item["fraccion"], fraccion
         fila = self.filas_cola.get(id_trabajo)
         if fila is not None and antes is not None and antes >= 0 and fraccion >= 0:
@@ -802,6 +834,44 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
     def revisarCarpeta_(self, timer):
         self.vigia.revisar()
 
+    # ------------------------------------------------------------ bienvenida --
+    @objc.python_method
+    def mostrarBienvenida(self):
+        self.bienvenida = Bienvenida.alloc().initWithDueno_marco_(self, self.contenido.frame())
+        self.contenido.setHidden_(True)
+        self.fondo.addSubview_(self.bienvenida.vista)
+        self.pintar()
+
+    @objc.python_method
+    def terminarBienvenida(self, precision, conectar_agentes):
+        pref.escribir(pref.PRECISION, precision)
+        pref.marcar_bienvenida()
+        if conectar_agentes:
+            agentes.instalar_todo(self.ejecutableComando())
+        self.bienvenida.vista.removeFromSuperview()
+        self.bienvenida = None
+        self.contenido.setHidden_(False)
+        self.alCambiarAjuste(pref.PRECISION)
+
+    @objc.python_method
+    def ejecutableComando(self):
+        """Cómo arranca el comando `transcribir`: con el Python de dentro de la app."""
+        app = recursos.app()
+        if app is None:
+            return agentes.ejecutable_desarrollo()
+        return [str(app / "Contents" / "MacOS" / NOMBRE), "--cli"]
+
+    @objc.python_method
+    def refrescarConectorAgentes(self):
+        """Si la app cambió de lugar o de versión, pone al día el comando y la Skill instalados."""
+        try:
+            if agentes.comando_existe() and not agentes.comando_instalado(self.ejecutableComando()):
+                agentes.instalar_comando(self.ejecutableComando())
+            if agentes.skill_existe() and not agentes.skill_instalada():
+                agentes.instalar_skill()
+        except OSError:
+            pass
+
     # --------------------------------------------------------------- agentes --
     @objc.python_method
     def encolarDesdeAgente(self, peticion, suscriptor):
@@ -913,10 +983,16 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             [NSURL.fileURLWithPath_(item["ruta_txt"])])
 
     def acercaDe_(self, sender):
-        self.alerta("Transcribir 1.0",
-                    "Convierte audios y videos en texto, en tu Mac y sin internet.\n\n"
-                    "Modelo: Qwen3-ASR, de código abierto, acelerado con MLX en el chip de Apple.\n"
-                    "Los agentes de IA pueden usarla con el comando `transcribir`.", ["Aceptar"])
+        creditos = ui.attributed(
+            "Convierte audio y video en texto, en tu Mac y sin internet.\n"
+            "Motor: Qwen3-ASR (código abierto) acelerado con MLX.\n"
+            f"Agentes de IA: comando `transcribir`.\n{REPO}",
+            11.0, ui.W_REGULAR, NSColor.secondaryLabelColor())
+        app = NSApplication.sharedApplication()
+        app.orderFrontStandardAboutPanelWithOptions_({
+            "ApplicationName": NOMBRE, "ApplicationVersion": VERSION, "Version": COMPILACION,
+            "Credits": creditos})
+        app.activateIgnoringOtherApps_(True)
 
     def abrirAjustes_(self, sender):
         if self.ventana_ajustes is None:
@@ -946,7 +1022,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 def main():
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(0)
-    icono = AQUI / "Transcribir.icns"
+    icono = recursos.ruta("Transcribir.icns")
     if icono.exists():
         app.setApplicationIconImage_(NSImage.alloc().initWithContentsOfFile_(str(icono)))
     delegado = DelegadoTranscribir.alloc().init()

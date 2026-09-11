@@ -1,0 +1,74 @@
+Transcribir — convierte audio y video en texto, en tu Mac y sin internet
+=======================================================================
+
+ANTES DE NADA
+-------------
+Funciona en Macs con chip Apple (M1, M2, M3, M4) y macOS 14 Sonoma o
+posterior. Compruébalo en  Menú Apple  >  Acerca de este Mac.
+Con "Procesador Intel" no funciona: el motor necesita el chip de Apple.
+
+
+INSTALAR
+--------
+Arrastra Transcribir a la carpeta Applications, aquí al lado.
+
+
+LA PRIMERA VEZ QUE LA ABRAS
+---------------------------
+macOS dirá: "Apple no pudo verificar que Transcribir no contenga software
+malicioso". Es lo que sale con cualquier app que no venga de la App
+Store ni esté firmada con una cuenta de desarrollador de pago. No es
+que la app tenga nada raro.
+
+Para abrirla, en macOS Sequoia (15) o posterior:
+
+  1. En el aviso, pulsa "Listo".
+  2. Abre  Ajustes del Sistema  >  Privacidad y Seguridad.
+  3. Baja hasta el apartado "Seguridad". Verás un mensaje diciendo que
+     se bloqueó Transcribir, con un botón "Abrir de todos modos".
+  4. Púlsalo y autentícate con Touch ID o tu contraseña.
+  5. Vuelve a abrir Transcribir y pulsa "Abrir".
+
+En macOS Sonoma (14) es más corto:
+
+  1. Clic derecho sobre Transcribir en Applications.
+  2. Elige "Abrir", y en el aviso pulsa "Abrir" otra vez.
+
+Solo hace falta una vez. Después se abre con normalidad.
+
+Si prefieres hacerlo de un tirón desde la Terminal:
+
+  xattr -dr com.apple.quarantine /Applications/Transcribir.app
+
+
+EL MODELO SE DESCARGA UNA SOLA VEZ
+----------------------------------
+Al abrirla por primera vez te pedirá elegir el modelo y lo descargará:
+
+  · Máxima precisión: unos 4,4 GB (recomendado).
+  · Rápida: unos 1,9 GB.
+
+Es la única vez que usa internet. Después todo se procesa en tu Mac:
+ningún audio ni texto sale de la computadora.
+
+
+QUÉ HACE
+--------
+  · Arrastra audios o videos (.m4a .mp4 .mp3 .wav .mov) a la ventana.
+  · Se transcriben en orden y cada uno queda como .txt (o subtítulos .srt)
+    en la carpeta que elijas; por defecto, el Escritorio.
+  · Separar por persona: en reuniones o entrevistas marca quién habla
+    («Persona 1:», «Persona 2:»).
+  · Ajustes (⌘,): idioma, precisión, vocabulario propio, formato,
+    carpeta vigilada y notificaciones.
+
+
+SI USAS AGENTES DE IA
+---------------------
+En la bienvenida (o en Ajustes > AGENTES) puedes conectar Transcribir
+con Claude Code, Codex o similares: instala el comando `transcribir` y
+una Skill para que la usen por su cuenta. Lo que pidan aparece en la
+ventana con su nombre.
+
+
+Código y novedades: https://github.com/JoseLuis0022/Transcribir

@@ -16,9 +16,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agentes import GUIA  # noqa: E402
+from identidad import ID_APP  # noqa: E402
 
 SOCKET = Path.home() / "Library" / "Application Support" / "Transcribir" / "transcribir.sock"
-APPS = (Path("/Applications/Transcribir.app"), Path(__file__).resolve().parent.parent / "Transcribir.app")
 SUBCOMANDOS = ("estado", "cancelar", "ajustes", "guia", "abrir", "limpiar")
 
 AYUDA = """\
@@ -50,13 +50,12 @@ def quien_pide() -> str:
 
 
 def abrir_app(segundo_plano: bool) -> None:
-    app = next((a for a in APPS if a.exists()), None)
-    if app is None:
-        raise SinApp("no se encontró Transcribir.app")
+    """Abre la app por su identificador: da igual en qué carpeta esté instalada."""
     comando = ["/usr/bin/open"]
     if segundo_plano:                      # sin robar el foco a quien está trabajando
         comando += ["-g", "--env", "TRANSCRIBIR_SEGUNDO_PLANO=1"]
-    subprocess.run(comando + ["-a", str(app)], check=False, capture_output=True)
+    if subprocess.run(comando + ["-b", ID_APP], capture_output=True).returncode != 0:
+        raise SinApp("Transcribir no está instalada (arrástrala a Aplicaciones desde el DMG)")
 
 
 def conectar(abrir: bool, espera: float = 60.0) -> socket.socket:
@@ -105,6 +104,8 @@ def cmd_transcribir(args) -> int:
     opciones = {k: v for k, v in (("idioma", args.idioma), ("formato", args.formato),
                                   ("precision", args.precision), ("vocabulario", args.vocabulario))
                 if v is not None}
+    if args.personas:
+        opciones["personas"] = True
     if args.junto:
         opciones["guardar"] = "junto"
     if args.destino:
@@ -131,9 +132,15 @@ def cmd_transcribir(args) -> int:
                     print(f"en cola #{t['id']}: {Path(t['archivo']).name}", file=sys.stderr)
         elif tipo == "progreso" and not args.json:
             pct = round(ev["progreso"] * 100) if ev["progreso"] >= 0 else -1
-            if pct < 0 or pct - ultimo_pct.get(ev["id"], -100) >= 10:
-                ultimo_pct[ev["id"]] = pct
-                estado = ev["estado"] if pct < 0 else f"{pct} %"
+            etapa = (ev["id"], ev["estado"].split(" · ")[0])     # "Descargando el modelo", "Transcribiendo…"
+            if pct < 0 or pct - ultimo_pct.get(etapa, -100) >= 10:
+                ultimo_pct[etapa] = pct
+                if pct < 0:
+                    estado = ev["estado"]
+                elif ev["estado"].startswith("Descargando"):
+                    estado = f"{ev['estado']} ({pct} %)"
+                else:
+                    estado = f"{pct} %"
                 print(f"#{ev['id']} {Path(ev['archivo']).name}: {estado}", file=sys.stderr, flush=True)
         elif tipo == "terminado" and not args.json:
             if args.texto:
@@ -240,6 +247,7 @@ def parser_transcribir() -> argparse.ArgumentParser:
     p.add_argument("--formato", choices=("parrafos", "tiempos", "srt"))
     p.add_argument("--precision", choices=("alta", "rapida"))
     p.add_argument("--vocabulario", help="nombres, siglas o términos del audio")
+    p.add_argument("--personas", action="store_true", help="separa por interlocutor (Persona 1:, Persona 2:)")
     destino = p.add_mutually_exclusive_group()
     destino.add_argument("--destino", help="carpeta donde guardar el resultado")
     destino.add_argument("--junto", action="store_true", help="guardar junto al archivo original")
