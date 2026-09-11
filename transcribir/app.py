@@ -502,9 +502,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                                else NSColor.tertiaryLabelColor(),
                                NSMakeRect(46, 9, ancho, 15), ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL))
         if listo:
-            v.addSubview_(ui.bezel_button("Mostrar en Finder",
-                                          NSMakeRect(CW - 16 - 128, 11, 128, 28),
-                                          self, b"mostrarEnFinder:", tag=item["id"]))
+            boton = ui.bezel_button("Mostrar en Finder", NSMakeRect(CW - 16 - 128, 11, 128, 28),
+                                    self, b"mostrarEnFinder:", tag=item["id"])
+            boton.setToolTip_(item["ruta_txt"])            # dónde está, sin tener que abrir Finder
+            v.addSubview_(boton)
         if not ultima:
             v.addSubview_(ui.hairline(NSMakeRect(16, 0, CW - 32, 1)))
         return v
@@ -734,9 +735,13 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         item = self.sacar(id_trabajo)
         if item is None:
             return
-        self.agregarHecho(item, "listo",
-                          f"{duracion_corta(duracion)} de audio · listo en {duracion_corta(segundos)}",
-                          ruta_txt)
+        detalle = f"{duracion_corta(duracion)} de audio · listo en {duracion_corta(segundos)}"
+        carpeta = Path(ruta_txt).parent
+        if str(carpeta) != pref.leer(pref.CARPETA):
+            # se guardó fuera de la carpeta de siempre (junto al original, o un agente eligió
+            # otro destino): que la fila lo diga, en vez de que sorprenda al abrir Finder
+            detalle = f"{duracion_corta(duracion)} de audio · en «{carpeta.name}»"
+        self.agregarHecho(item, "listo", detalle, ruta_txt)
         self.lote_listos.append((item["ruta"].name, ruta_txt))
         self.alCambiarCola()
         self.emitir(id_trabajo, {"evento": "terminado", "archivo": str(item["ruta"]), "ruta": ruta_txt,
