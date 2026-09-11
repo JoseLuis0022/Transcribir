@@ -156,7 +156,9 @@ class Motor(threading.Thread):
             segmentacion = self._modelo(t, "segmentacion")
             voces = self._modelo(t, "voces")
             self._despachar(self._al_progreso, t.id, "Separando por persona…", -1.0)
-            turnos = interlocutores.turnos(muestras, segmentacion, voces, lambda: self._revisar(t.id))
+            turnos = interlocutores.turnos(
+                muestras, segmentacion, voces, lambda: self._revisar(t.id),
+                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f))
             personas = formatos.asignar_personas(palabras, turnos)
 
         if op["formato"] == "srt":
