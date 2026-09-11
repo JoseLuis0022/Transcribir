@@ -137,7 +137,7 @@ def cmd_transcribir(args) -> int:
                 ultimo_pct[etapa] = pct
                 if pct < 0:
                     estado = ev["estado"]
-                elif ev["estado"].startswith("Descargando"):
+                elif not ev["estado"].startswith("Transcribiendo"):     # descargando, separando…
                     estado = f"{ev['estado']} ({pct} %)"
                 else:
                     estado = f"{pct} %"

@@ -1,6 +1,7 @@
 """Cómo se escribe cada transcripción: párrafos, con tiempos, por persona o subtítulos."""
 
 import re
+from bisect import bisect_right
 
 FIN_ORACION = re.compile(r"[.!?…]$")
 
@@ -56,12 +57,20 @@ def asignar_personas(palabras: list[tuple[str, float, float]], turnos: list[tupl
     """Número de persona de cada palabra (desde 1, en orden de aparición)."""
     if not turnos:
         return [1] * len(palabras)
+    turnos = sorted(turnos)
+    inicios = [t[0] for t in turnos]
+
+    def distancia(turno, centro):
+        return 0.0 if turno[0] <= centro <= turno[1] else min(abs(centro - turno[0]), abs(centro - turno[1]))
+
     crudas = []
     for _, t0, t1 in palabras:
         centro = (t0 + t1) / 2
-        turno = min(turnos, key=lambda t: 0.0 if t[0] <= centro <= t[1]
-                    else min(abs(centro - t[0]), abs(centro - t[1])))
-        crudas.append(turno[2])
+        # búsqueda binaria: basta mirar los turnos vecinos (una hora de audio son
+        # miles de turnos y comparar con todos retenía la ventana varios segundos)
+        i = bisect_right(inicios, centro) - 1
+        vecinos = [turnos[k] for k in (i - 1, i, i + 1) if 0 <= k < len(turnos)]
+        crudas.append(min(vecinos, key=lambda t: distancia(t, centro))[2])
     # una palabra suelta entre dos de la misma persona es ruido del borde de un turno
     for i in range(1, len(crudas) - 1):
         if crudas[i - 1] == crudas[i + 1] != crudas[i]:
