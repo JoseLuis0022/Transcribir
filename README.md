@@ -82,7 +82,7 @@ Requisitos: Mac con Apple Silicon, macOS 14+ y [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements.txt sherpa-onnx
+uv pip install --python .venv/bin/python -r requirements.txt
 
 .venv/bin/python transcribir/principal.py   # correr desde el código
 ./scripts/construir.sh                       # app completa en /Applications, más el comando y la Skill

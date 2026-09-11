@@ -1,4 +1,5 @@
 mlx-qwen3-asr
+sherpa-onnx
 pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
 pyobjc-framework-UserNotifications
