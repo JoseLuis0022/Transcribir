@@ -90,10 +90,12 @@ class ControladorAjustes(NSObject):
             self.filaMenu("Idioma", "Idioma que se habla en el audio", pref.IDIOMA),
             self.filaMenu("Precisión", "La rápida sirve para borradores", pref.PRECISION),
             self.filaCampo("Vocabulario", "Nombres, siglas o términos que aparecen en tus audios",
-                           pref.VOCABULARIO, "Ej.: Macedo, ESM, DevSecOps, Qwen"),
+                           pref.VOCABULARIO, "Ej.: Kubernetes, OKR, Dra. Ramírez, Monterrey"),
         ])
         y = self.seccion(doc, y, "RESULTADO", [
             self.filaMenu("Formato", "Texto, tiempos o subtítulos", pref.FORMATO),
+            self.filaInterruptor("Separar por persona",
+                                 "Marca quién habla: «Persona 1:», «Persona 2:»…", pref.PERSONAS),
             self.filaMenu("Dónde guardar", "Carpeta fija o junto al audio", pref.GUARDAR),
             self.filaCarpeta("Carpeta de destino", pref.CARPETA),
             self.filaMenu("Al terminar", "Solo con lo que agregas tú", pref.AL_TERMINAR),
@@ -276,7 +278,8 @@ class ControladorAjustes(NSObject):
 
     @objc.python_method
     def sincronizarAgentes(self):
-        for cual, instalado in (("comando", agentes.comando_instalado()), ("skill", agentes.skill_instalada())):
+        comando = agentes.comando_instalado(self.dueno.ejecutableComando())
+        for cual, instalado in (("comando", comando), ("skill", agentes.skill_instalada())):
             estado = getattr(self, f"estado_{cual}")
             estado.setStringValue_("Instalado" if instalado else "No instalado")
             estado.setTextColor_(NSColor.systemGreenColor() if instalado else NSColor.tertiaryLabelColor())
@@ -358,7 +361,7 @@ class ControladorAjustes(NSObject):
         self.guardar(clave, carpeta)
 
     def instalarComando_(self, sender):
-        agentes.instalar_comando()
+        agentes.instalar_comando(self.dueno.ejecutableComando())
         self.sincronizarAgentes()
 
     def instalarSkill_(self, sender):
