@@ -590,7 +590,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 pct = round(activa["fraccion"] * 100)
                 if activa["fraccion"] < 0:
                     sub = f"{nombre} · {texto or 'Preparando el modelo…'}"
-                elif texto.startswith("Descargando"):
+                elif texto and not texto.startswith("Transcribiendo"):    # descargando, separando…
                     sub = f"{nombre}\n{texto} · {pct} %"
                 else:
                     sub = f"{nombre} · {pct} %"
