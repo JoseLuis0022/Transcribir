@@ -1,0 +1,72 @@
+Licencia de Uso Personal de Transcribir
+=======================================
+
+Copyright (c) 2026 José Luis Macedo. Todos los derechos reservados.
+
+Este software NO es software libre ni de código abierto. El código se publica
+únicamente para consulta, revisión y transparencia sobre lo que hace la
+aplicación en tu Mac.
+
+
+LO QUE SÍ PUEDES HACER
+----------------------
+
+Se concede permiso, sin coste alguno, para:
+
+  1. Descargar, instalar y ejecutar Transcribir en los dispositivos que poseas
+     o administres, con fines personales o profesionales.
+  2. Leer y estudiar el código fuente.
+  3. Modificar el código para tu propio uso privado, sin distribuir el
+     resultado.
+
+
+LO QUE NO PUEDES HACER SIN PERMISO ESCRITO
+------------------------------------------
+
+Queda expresamente prohibido, sin autorización previa y por escrito del titular
+de los derechos:
+
+  1. Redistribuir el software, su código fuente o sus binarios, ya sea de forma
+     original o modificada, gratuita o de pago, por cualquier medio.
+  2. Publicar obras derivadas, bifurcaciones públicas o versiones alternativas.
+  3. Usar el software, en todo o en parte, con fines comerciales: venderlo,
+     alquilarlo, incorporarlo a un producto o servicio de pago, o emplearlo
+     como base de una oferta comercial.
+  4. Usar el nombre "Transcribir", su icono o su identidad visual para
+     identificar otro producto.
+  5. Eliminar o alterar los avisos de autoría y de licencia.
+
+La ingeniería inversa y la descompilación quedan permitidas únicamente en la
+medida en que la ley aplicable lo autorice de forma imperativa.
+
+
+COMPONENTES DE TERCEROS
+-----------------------
+
+Transcribir usa modelos y bibliotecas de terceros que conservan sus propias
+licencias, entre ellos Qwen3-ASR y Qwen3-ForcedAligner (Apache 2.0), MLX (MIT),
+mlx-qwen3-asr, Sherpa-ONNX (Apache 2.0), la segmentación de pyannote 3.0 (MIT)
+y las huellas de voz WeSpeaker. Esta licencia no cambia los términos de esos
+componentes. Los modelos no se incluyen en la app: se descargan de Hugging Face
+la primera vez que se necesitan.
+
+
+AUSENCIA DE GARANTÍA
+--------------------
+
+EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
+IMPLÍCITA, INCLUIDAS ENTRE OTRAS LAS GARANTÍAS DE COMERCIABILIDAD, IDONEIDAD
+PARA UN PROPÓSITO PARTICULAR Y NO INFRACCIÓN.
+
+Las transcripciones y la separación por persona las genera un modelo
+automático y pueden contener errores. Revísalas antes de usarlas en contextos
+donde la exactitud importe. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE DAÑO
+ALGUNO —INCLUIDA LA PÉRDIDA DE DATOS O LAS DECISIONES TOMADAS A PARTIR DE UNA
+TRANSCRIPCIÓN— DERIVADO DEL USO DE ESTE SOFTWARE.
+
+
+PERMISOS ADICIONALES
+--------------------
+
+Para cualquier uso no contemplado aquí, escribe al titular de los derechos y
+lo hablamos.
