@@ -1,6 +1,5 @@
 """Motor de transcripción: procesa la cola en segundo plano con Qwen3-ASR."""
 
-import os
 import threading
 import time
 import traceback
@@ -8,21 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
 
+import audio
 import formatos
+import interlocutores
+import modelos
 
-PROYECTO = Path(__file__).resolve().parent.parent
-MODELOS = {"alta": "Qwen/Qwen3-ASR-1.7B", "rapida": "Qwen/Qwen3-ASR-0.6B"}
-ALINEADOR = "Qwen/Qwen3-ForcedAligner-0.6B"
 IDIOMAS = {"es": "Spanish", "en": "English", "auto": None}
 EXTENSIONES = {".m4a", ".mp4", ".mp3", ".wav", ".mov"}
 REGISTRO = Path.home() / "Library" / "Logs" / "Transcribir.log"
-
-# Los modelos viven en la carpeta del proyecto y nunca se consulta internet.
-os.environ["HF_HUB_CACHE"] = str(PROYECTO / "modelos" / "hf")
-os.environ["HF_HUB_OFFLINE"] = "1"
-# La librería llama a `ffmpeg` por nombre, y las apps abiertas desde Finder
-# no heredan el PATH de Homebrew.
-os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "/usr/bin:/bin")
 
 
 class Cancelado(Exception):
@@ -48,8 +40,8 @@ def ruta_libre(carpeta: Path, nombre: str, extension: str = ".txt") -> Path:
 
 
 def motivo_legible(e: Exception) -> str:
-    if "Failed to load audio" in str(e):
-        return "No se pudo leer el audio: archivo dañado o sin sonido"
+    if isinstance(e, (audio.AudioIlegible, modelos.ErrorDescarga)):
+        return str(e)
     return (str(e).strip().splitlines() or [type(e).__name__])[0][:200]
 
 
@@ -59,7 +51,7 @@ class Motor(threading.Thread):
     Los avisos se entregan con `despachar(funcion, *args)`; en la app los lleva
     al hilo principal. `al_progreso(id, estado, fraccion)` usa -1 para "sin
     porcentaje", `al_terminar(id, ruta, duracion, segundos)`, `al_fallar(id, motivo)`
-    y `al_cancelar(id)`.
+    y `al_cancelar(id)`. Si falta un modelo, lo descarga antes de transcribir.
     """
 
     def __init__(self, al_progreso, al_terminar, al_fallar, al_cancelar, despachar):
@@ -98,51 +90,81 @@ class Motor(threading.Thread):
         if id_trabajo in self._cancelados:
             raise Cancelado()
 
-    def _sesion(self, precision: str):
-        modelo = MODELOS[precision]
-        if modelo not in self._sesiones:
+    def _modelo(self, t: Trabajo, clave: str) -> Path:
+        """Carpeta local del modelo; si falta, lo descarga mostrando el avance."""
+        ruta = modelos.ruta_local(clave)
+        if ruta is not None:
+            return ruta
+
+        def avance(bajado, total):
+            self._despachar(self._al_progreso, t.id,
+                            f"Descargando el modelo · {modelos.gb(bajado)} de {modelos.gb(total)}",
+                            bajado / total if total else -1.0)
+
+        try:
+            return modelos.descargar(clave, avance, lambda: t.id in self._cancelados)
+        except modelos.DescargaCancelada:
+            raise Cancelado()
+
+    def _sesion(self, t: Trabajo, precision: str):
+        if precision not in self._sesiones:
+            ruta = self._modelo(t, precision)
+            self._despachar(self._al_progreso, t.id, "Preparando el modelo…", -1.0)
             from mlx_qwen3_asr import Session
 
-            self._sesiones[modelo] = Session(model=modelo)
-        return self._sesiones[modelo]
+            self._sesiones[precision] = Session(model=str(ruta))
+        return self._sesiones[precision]
 
-    def _obtener_alineador(self):
+    def _obtener_alineador(self, t: Trabajo):
         if self._alineador is None:
+            ruta = self._modelo(t, "alineador")
+            self._despachar(self._al_progreso, t.id, "Preparando el modelo…", -1.0)
             from mlx_qwen3_asr.forced_aligner import ForcedAligner
 
-            self._alineador = ForcedAligner(ALINEADOR)
+            self._alineador = ForcedAligner(str(ruta))
         return self._alineador
 
     def _procesar(self, t: Trabajo) -> None:
         self._revisar(t.id)
         op = t.opciones
-        con_tiempos = op["formato"] in ("tiempos", "srt")
-        if MODELOS[op["precision"]] not in self._sesiones or (con_tiempos and self._alineador is None):
-            self._despachar(self._al_progreso, t.id, "Preparando el modelo…", -1.0)
-        sesion = self._sesion(op["precision"])
-        alineador = self._obtener_alineador() if con_tiempos else None
+        por_persona = bool(op.get("personas"))
+        con_tiempos = op["formato"] in ("tiempos", "srt") or por_persona
+        sesion = self._sesion(t, op["precision"])
+        alineador = self._obtener_alineador(t) if con_tiempos else None
         self._revisar(t.id)
 
+        inicio = time.perf_counter()
+        muestras, duracion = audio.leer(t.origen)
+        self._revisar(t.id)
         self._despachar(self._al_progreso, t.id, "Transcribiendo…", 0.0)
-        duracion = 0.0
 
         def al_avanzar(p: dict) -> None:
-            nonlocal duracion
             self._revisar(t.id)             # cancelar corta aquí, entre fragmentos
-            duracion = p.get("audio_duration_sec", duracion)
             if p.get("event") in ("chunks_prepared", "chunk_completed"):
                 self._despachar(self._al_progreso, t.id, "Transcribiendo…", float(p.get("progress", 0.0)))
 
-        inicio = time.perf_counter()
         resultado = sesion.transcribe(
-            str(t.origen), language=IDIOMAS[op["idioma"]], context=op["vocabulario"] or "",
+            muestras, language=IDIOMAS[op["idioma"]], context=op["vocabulario"] or "",
             return_timestamps=con_tiempos, forced_aligner=alineador, on_progress=al_avanzar)
         self._revisar(t.id)
 
+        palabras = formatos.palabras_con_tiempo(resultado.text, resultado.segments or []) if con_tiempos else []
+        if con_tiempos and not palabras:
+            raise RuntimeError("No se pudieron calcular los tiempos de las palabras")
+        personas = None
+        if por_persona:
+            segmentacion = self._modelo(t, "segmentacion")
+            voces = self._modelo(t, "voces")
+            self._despachar(self._al_progreso, t.id, "Separando por persona…", -1.0)
+            turnos = interlocutores.turnos(muestras, segmentacion, voces, lambda: self._revisar(t.id))
+            personas = formatos.asignar_personas(palabras, turnos)
+
         if op["formato"] == "srt":
-            contenido, extension = formatos.a_srt(resultado.text, resultado.segments or []), ".srt"
+            contenido, extension = formatos.a_srt(palabras, personas), ".srt"
+        elif personas is not None:
+            contenido, extension = formatos.con_personas(palabras, personas, op["formato"] == "tiempos"), ".txt"
         elif op["formato"] == "tiempos":
-            contenido, extension = formatos.con_tiempos(resultado.text, resultado.segments or []), ".txt"
+            contenido, extension = formatos.con_tiempos(palabras), ".txt"
         else:
             contenido, extension = formatos.en_parrafos(resultado.text), ".txt"
         if not contenido.strip():
