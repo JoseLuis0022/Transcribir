@@ -194,10 +194,11 @@ class ControladorAjustes(NSObject):
         def construir(caja, abajo):
             caja.addSubview_(ui.icon_view("folder.fill", NSMakeRect(16, abajo + 15, 20, 20),
                                           NSColor.secondaryLabelColor(), 14.0))
+            # textos del alto de su letra y centrados en la fila, como el icono y el botón
             caja.addSubview_(ui.label(titulo, 13.0, ui.W_MEDIUM, NSColor.labelColor(),
-                                      NSMakeRect(46, abajo + 15, 150, 20), ui.ALIGN_LEFT))
+                                      NSMakeRect(46, abajo + (FILA - 17) / 2, 150, 17), ui.ALIGN_LEFT))
             valor = ui.label("", 13.0, ui.W_SEMIBOLD, NSColor.labelColor(),
-                             NSMakeRect(196, abajo + 15, CW - 196 - 16 - 96 - 10, 20),
+                             NSMakeRect(196, abajo + (FILA - 17) / 2, CW - 196 - 16 - 96 - 10, 17),
                              ui.ALIGN_RIGHT, truncate=ui.TRUNC_MIDDLE)
             caja.addSubview_(valor)
             caja.addSubview_(ui.bezel_button("Elegir…", NSMakeRect(CW - 16 - 96, abajo + 11, 96, 28),
@@ -229,9 +230,10 @@ class ControladorAjustes(NSObject):
             caja.addSubview_(ui.icon_view(simbolo, NSMakeRect(16, abajo + 15, 20, 20),
                                           NSColor.secondaryLabelColor(), 15.0))
             caja.addSubview_(ui.label(titulo, 13.0, ui.W_MEDIUM, NSColor.labelColor(),
-                                      NSMakeRect(46, abajo + 15, 170, 20), ui.ALIGN_LEFT))
+                                      NSMakeRect(46, abajo + (FILA - 17) / 2, 170, 17), ui.ALIGN_LEFT))
             estado = ui.label("", 12.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
-                              NSMakeRect(CW - 16 - 110 - 10 - 110, abajo + 16, 110, 18), ui.ALIGN_RIGHT)
+                              NSMakeRect(CW - 16 - 110 - 10 - 110, abajo + (FILA - 15) / 2, 110, 15),
+                              ui.ALIGN_RIGHT)
             caja.addSubview_(estado)
             boton = ui.bezel_button("", NSMakeRect(CW - 16 - 110, abajo + 11, 110, 28), self, accion)
             caja.addSubview_(boton)

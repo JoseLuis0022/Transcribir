@@ -333,10 +333,12 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         fondo.addSubview_(pie)
         pie.addSubview_(ui.icon_view("folder.fill", NSMakeRect(16, 14, 20, 20),
                                      NSColor.secondaryLabelColor(), 14.0))
+        # el texto se dibuja pegado arriba de su marco: marco del alto de la letra (17 pt),
+        # centrado en la fila como el icono y el botón
         pie.addSubview_(ui.label("Guardar en", 13.0, ui.W_MEDIUM, NSColor.labelColor(),
-                                 NSMakeRect(46, 14, 100, 20), ui.ALIGN_LEFT))
+                                 NSMakeRect(46, (PIE_H - 17) / 2, 100, 17), ui.ALIGN_LEFT))
         self.valor_carpeta = ui.label("", 13.0, ui.W_SEMIBOLD, NSColor.labelColor(),
-                                      NSMakeRect(140, 14, CW - 140 - 16 - 96 - 10, 20),
+                                      NSMakeRect(140, (PIE_H - 17) / 2, CW - 140 - 16 - 96 - 10, 17),
                                       ui.ALIGN_RIGHT, truncate=ui.TRUNC_MIDDLE)
         pie.addSubview_(self.valor_carpeta)
         pie.addSubview_(ui.bezel_button("Cambiar…", NSMakeRect(CW - 16 - 96, 10, 96, 28),
