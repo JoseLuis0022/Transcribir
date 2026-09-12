@@ -110,6 +110,7 @@ class ControladorAjustes(NSObject):
             self.filaMenu("Fuerza del resaltado", "Cuánto se nota la palabra que suena",
                           pref.FUERZA),
         ])
+        y = self.seccion(doc, y, "HISTORIAL", [self.filaHistorial()])
         y = self.seccion(doc, y, "CARPETA VIGILADA", [
             self.filaInterruptor("Vigilar una carpeta",
                                  "Transcribe sola cada audio o video nuevo mientras la app está abierta",
@@ -217,6 +218,34 @@ class ControladorAjustes(NSObject):
         return FILA, construir
 
     @objc.python_method
+    def filaHistorial(self):
+        """Cuántas transcripciones recuerda la app, y cómo olvidarlas todas."""
+        def construir(caja, abajo):
+            caja.addSubview_(ui.icon_view("clock.arrow.circlepath", NSMakeRect(16, abajo + 40, 20, 20),
+                                          NSColor.secondaryLabelColor(), 15.0))
+            caja.addSubview_(ui.label("Transcripciones guardadas", 13.0, ui.W_MEDIUM,
+                                      NSColor.labelColor(),
+                                      NSMakeRect(46, abajo + 40, CW - 46 - 250, 20), ui.ALIGN_LEFT))
+            self.cuenta_historial = ui.label("", 13.0, ui.W_SEMIBOLD, NSColor.labelColor(),
+                                             NSMakeRect(CW - 16 - 150 - 12 - 70, abajo + 41, 70, 18),
+                                             ui.ALIGN_RIGHT)
+            caja.addSubview_(self.cuenta_historial)
+            caja.addSubview_(ui.bezel_button("Vaciar el historial…",
+                                             NSMakeRect(CW - 16 - 150, abajo + 36, 150, 28),
+                                             self, b"vaciarHistorial:"))
+            caja.addSubview_(ui.hairline(NSMakeRect(16, abajo + 30, CW - 32, 1)))
+            caja.addSubview_(ui.label(
+                "La app recuerda qué transcribiste y dónde quedó cada archivo, para el editor "
+                "y el historial. Vaciarlo no borra ningún .txt: siguen en tu carpeta.",
+                11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                NSMakeRect(16, abajo + 2, CW - 32, 28), ui.ALIGN_LEFT))
+        return 76.0, construir
+
+    def vaciarHistorial_(self, sender):
+        if self.dueno.vaciarHistorial():
+            self.sincronizar()
+
+    @objc.python_method
     def filaPermiso(self):
         def construir(caja, abajo):
             self.icono_permiso = ui.icon_view("bell.fill", NSMakeRect(16, abajo + 48, 20, 20),
@@ -285,6 +314,9 @@ class ControladorAjustes(NSObject):
         junto = pref.leer(pref.GUARDAR) == "junto"
         self.controles[pref.CARPETA][1].setTextColor_(
             NSColor.tertiaryLabelColor() if junto else NSColor.labelColor())
+        if getattr(self, "cuenta_historial", None) is not None:
+            cuantas = len(self.dueno.historial)
+            self.cuenta_historial.setStringValue_(str(cuantas) if cuantas else "Ninguna")
         self.sincronizarAgentes()
         avisos.consultar(self.pintarPermiso)
 

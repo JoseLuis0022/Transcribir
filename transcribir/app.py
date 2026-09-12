@@ -1368,6 +1368,26 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.ventana_historial.mostrar(buscar=buscar)
 
     @objc.python_method
+    def vaciarHistorial(self):
+        """Olvida todas las transcripciones. Los .txt siguen en tu carpeta."""
+        cuantas = len(self.historial)
+        if not cuantas:
+            return 0
+        texto = (f"Se olvidarán {plural(cuantas, 'transcripción', 'transcripciones')} del "
+                 "historial.\n\nTus archivos de texto no se borran: siguen donde están.")
+        if self.alerta("¿Vaciar el historial?", texto, ["Vaciar", "Cancelar"]) != 1000:
+            return 0
+        for ficha in self.historial:
+            biblioteca.olvidar(ficha["id"])
+        self.historial = []
+        self.hechos = [e for e in self.hechos if e["tipo"] != "ficha"]
+        self.pintarHechos()
+        self.pintar()
+        if self.ventana_historial is not None:
+            self.ventana_historial.pintar()
+        return cuantas
+
+    @objc.python_method
     def olvidarFicha(self, ficha):
         biblioteca.olvidar(ficha["id"])
         self.historial = [f for f in self.historial if f["id"] != ficha["id"]]

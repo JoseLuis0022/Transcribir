@@ -372,12 +372,14 @@ class Editor(NSObject):
         util = ancho - margen * 2
         y = [18.0]                                # de arriba hacia abajo (vista volteada)
 
-        def titulo(texto, primero=False):
+        def titulo(texto, simbolo, primero=False):
             if not primero:
                 y[0] += 14
                 caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
                 y[0] += 16
-            caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
+            caja.addSubview_(ui.icon_view(simbolo, NSMakeRect(margen, y[0] + 1, 14, 14),
+                                          NSColor.secondaryLabelColor(), 11.0))
+            caja.addSubview_(ui.section_title(texto, NSMakeRect(margen + 20, y[0], util - 20, 16)))
             y[0] += 22
 
         def control(etiqueta, vista, alto=22.0):
@@ -402,7 +404,7 @@ class Editor(NSObject):
         quienes = self.personas()
         self.filas_persona = {}
         if quienes:
-            titulo("PERSONAS", primero=True)
+            titulo("PERSONAS", "person.2.fill", primero=True)
             for i, numero in enumerate(quienes):
                 color = ui.COLORES_PERSONA[i % len(ui.COLORES_PERSONA)]
                 fila = NSView.alloc().initWithFrame_(NSMakeRect(margen, y[0], util, 24))
@@ -429,7 +431,7 @@ class Editor(NSObject):
 
         ruta = biblioteca.ubicar(self.ficha)
         ajustes = self.ficha.get("ajustes") or {}
-        titulo("DETALLES", primero=not quienes)
+        titulo("DETALLES", "info.circle.fill", primero=not quienes)
         dato("Duración", reloj(self.ficha.get("duracion") or 0))
         dato("Fecha", exportar.fecha_corta(self.ficha.get("creado")))
         dato("Idioma", {"es": "Español", "en": "Inglés"}.get(ajustes.get("idioma"), "Automático"))
@@ -441,7 +443,7 @@ class Editor(NSObject):
         if self.ficha.get("cliente"):
             dato("Lo pidió", self.ficha["cliente"])
 
-        titulo("RESALTADO")
+        titulo("RESALTADO", "highlighter")
         if self.tiene_audio:
             tipos = [pref.ETIQUETAS[pref.RESALTADO][c] for c in ("palabra", "fondo")]
             menu_tipo = ui.popup(NSMakeRect(0, 0, 10, 22), tipos, self, b"elegirResaltado:")
@@ -476,7 +478,7 @@ class Editor(NSObject):
             y[0] += 24
 
         if not quienes and self.tiene_audio:
-            titulo("PERSONAS")
+            titulo("PERSONAS", "person.2.fill")
             self.boton_personas = ui.bezel_button("Separar por persona",
                                                   NSMakeRect(margen, y[0], util, 24),
                                                   self, b"separarPersonas:", size=11.5)
