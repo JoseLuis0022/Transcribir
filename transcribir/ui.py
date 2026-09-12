@@ -23,7 +23,7 @@ try:  # macOS unifica NSTextAlignment con UIKit: left=0, center=1, right=2
 except ImportError:
     ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT = 0, 1, 2
 
-STYLE_TITLED, STYLE_CLOSABLE, STYLE_MINI = 1, 2, 4
+STYLE_TITLED, STYLE_CLOSABLE, STYLE_MINI, STYLE_RESIZABLE = 1, 2, 4, 8
 STYLE_FULL_CONTENT = 1 << 15
 IMG_SCALE_PROPORTIONAL = 3
 IMAGE_ONLY = 1
@@ -42,6 +42,13 @@ class VistaVolteada(NSView):
 
     def isFlipped(self):
         return True
+
+
+class Decorativa(NSView):
+    """Adorno: no atrapa el ratón, así que el clic llega a lo que hay debajo."""
+
+    def hitTest_(self, punto):
+        return None
 
 
 def sf(name, size, weight=W_MEDIUM):
@@ -102,8 +109,8 @@ def continuous(layer, radius):
             pass
 
 
-def rounded(frame, radius, fill=None, border=None):
-    v = NSView.alloc().initWithFrame_(frame)
+def rounded(frame, radius, fill=None, border=None, clase=NSView):
+    v = clase.alloc().initWithFrame_(frame)
     v.setWantsLayer_(True)
     continuous(v.layer(), radius)
     if fill is not None:
@@ -202,13 +209,44 @@ def text_field(frame, placeholder, target, action, tag=0):
     return f
 
 
-def pill(text, symbol, color):
-    """Etiqueta breve con fondo tenue: quién pidió un trabajo. Se coloca con setFrameOrigin_."""
-    text_w = attributed(text, 10.5, W_SEMIBOLD, color).size().width
-    v = rounded(NSMakeRect(0, 0, text_w + 26, 16), 8.0, fill=color.colorWithAlphaComponent_(0.16))
-    v.addSubview_(icon_view(symbol, NSMakeRect(6, 3, 10, 10), color, 8.5))
-    v.addSubview_(label(text, 10.5, W_SEMIBOLD, color, NSMakeRect(17, 0, text_w + 6, 15), ALIGN_LEFT))
+def pill(text, symbol, color, alto=16.0, tamano=10.5, decorativa=False):
+    """Etiqueta breve con fondo tenue: quién pidió un trabajo, quién habla…
+
+    Se coloca con setFrameOrigin_. El icono y el texto van centrados en la altura,
+    y el texto en un marco del alto de su letra para que no quede pegado arriba.
+    """
+    icono = 10.0 if alto <= 18 else 12.0
+    lado = 6.0 if alto <= 18 else 9.0
+    hueco = 5.0
+    ancho_texto = attributed(text, tamano, W_SEMIBOLD, color).size().width
+    alto_letra = tamano + 4
+    v = rounded(NSMakeRect(0, 0, lado * 2 + icono + hueco + ancho_texto + 2, alto), alto / 2,
+                fill=color.colorWithAlphaComponent_(0.16),
+                clase=Decorativa if decorativa else NSView)
+    v.addSubview_(icon_view(symbol, NSMakeRect(lado, (alto - icono) / 2, icono, icono),
+                            color, icono * 0.85))
+    v.addSubview_(label(text, tamano, W_SEMIBOLD, color,
+                        NSMakeRect(lado + icono + hueco, (alto - alto_letra) / 2 - 1,
+                                   ancho_texto + 6, alto_letra),
+                        ALIGN_LEFT))
     return v
+
+
+def pill_button(text, symbol, color, target, action, tag=0, alto=24.0):
+    """Una pastilla en la que se puede pulsar: los nombres de quien habla.
+
+    El dibujo es el mismo `pill`, encima de un botón sin borde: así el clic llega
+    al botón y la pastilla queda idéntica a las demás de la app.
+    """
+    dentro = pill(text, symbol, color, alto=alto, tamano=11.0, decorativa=True)
+    b = NSButton.alloc().initWithFrame_(dentro.frame())
+    b.setBordered_(False)
+    b.setTitle_("")
+    b.setTarget_(target)
+    b.setAction_(action)
+    b.setTag_(tag)
+    b.addSubview_(dentro)
+    return b
 
 
 def menu_item(title, action, key, target=None, modifiers=None):

@@ -13,7 +13,7 @@ ESCRITORIO = Path.home() / "Desktop"
 
 IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
-PERSONAS = "personas"
+PERSONAS, TIEMPOS = "personas", "tiempos"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
 AVISO_CADA, AVISO_COLA, AVISO_ERRORES, AVISO_SONIDO = (
     "avisos_cada_archivo", "avisos_cola", "avisos_errores", "avisos_sonido")
@@ -25,6 +25,7 @@ ESQUEMA = {
     VOCABULARIO: ("", str),
     FORMATO: ("parrafos", ("parrafos", "tiempos", "srt")),
     PERSONAS: (False, bool),
+    TIEMPOS: (False, bool),
     GUARDAR: ("carpeta", ("carpeta", "junto")),
     CARPETA: (str(ESCRITORIO), str),
     AL_TERMINAR: ("nada", ("nada", "finder", "abrir")),
@@ -37,7 +38,7 @@ ESQUEMA = {
 }
 
 # Opciones de cada trabajo (un agente puede cambiarlas solo para su petición).
-DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, PERSONAS, GUARDAR, CARPETA)
+DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, PERSONAS, TIEMPOS, GUARDAR, CARPETA)
 
 ETIQUETAS = {
     IDIOMA: {"es": "Español", "en": "Inglés", "auto": "Detectar automáticamente"},

@@ -5,6 +5,73 @@ from bisect import bisect_right
 
 FIN_ORACION = re.compile(r"[.!?…]$")
 
+# Lo que adorna una línea y no es habla: el número y el tiempo de un subtítulo,
+# la marca «[02:15]» y el «Persona 1:» del principio.
+SOLO_NUMERO = re.compile(r"^\d+$")
+MARCA = re.compile(r"^\[\d+:\d\d(?::\d\d)?\]\s*")
+QUIEN = re.compile(r"^Persona \d+:\s*")
+
+
+def tokens(contenido: str, nombres=()) -> list[tuple[str, int, int]]:
+    """Las palabras habladas del archivo, cada una con su sitio: (palabra, inicio, fin).
+
+    Deja fuera lo que es formato y no texto, para que los tiempos encajen igual
+    en un .txt de párrafos, en uno con marcas de tiempo y en un .srt.
+    """
+    quienes = [QUIEN] + [re.compile(rf"^{re.escape(n)}:\s*") for n in nombres if n.strip()]
+    salida, base = [], 0
+    for linea in contenido.splitlines(keepends=True):
+        cruda, inicio = linea.rstrip("\n"), 0
+        if not SOLO_NUMERO.match(cruda.strip()) and "-->" not in cruda:
+            for patron in (MARCA, *quienes):
+                encontrado = patron.match(cruda[inicio:])
+                if encontrado:
+                    inicio += encontrado.end()
+            for palabra in re.finditer(r"\S+", cruda[inicio:]):
+                salida.append((palabra.group(), base + inicio + palabra.start(),
+                               base + inicio + palabra.end()))
+        base += len(linea)
+    return salida
+
+
+def limpiar(contenido: str, nombres=()) -> str:
+    """Solo el habla, sin marcas ni nombres: lo que hay que alinear con el audio."""
+    return " ".join(p for p, _, _ in tokens(contenido, nombres))
+
+
+def mapear_tiempos(contenido: str, palabras: list, nombres=()) -> list[tuple[int, int, float, float]]:
+    """Empareja cada palabra del archivo con su momento: (inicio, fin, desde, hasta).
+
+    Es lo que permite resaltar la palabra que suena sobre el texto tal como está
+    escrito, sin volver a tocar el archivo.
+    """
+    return [(i, f, p[1], p[2]) for (_, i, f), p in zip(tokens(contenido, nombres), palabras)]
+
+
+def renombrar_personas(contenido: str, nombres: dict, actuales=None) -> str:
+    """Cambia «Persona 1:» (o el nombre que tenga ahora) por el nuevo, en todo el archivo.
+
+    `nombres` y `actuales` son {"1": "Ana"}; un nombre vacío devuelve «Persona 1:».
+    """
+    actuales = actuales or {}
+    # de más largo a más corto, para que «Ana García» gane sobre «Ana»
+    etiquetas = sorted(
+        [(f"Persona {n}", n) for n in set(nombres) | set(actuales)]
+        + [(v.strip(), n) for n, v in actuales.items() if v.strip()],
+        key=lambda p: -len(p[0]))
+
+    def cambiar(linea):
+        marca = MARCA.match(linea)
+        desde = marca.end() if marca else 0
+        for etiqueta, numero in etiquetas:
+            if linea[desde:].startswith(f"{etiqueta}:"):
+                nuevo = (nombres.get(numero) or "").strip() or f"Persona {numero}"
+                resto = linea[desde + len(etiqueta) + 1:].lstrip(" ")
+                return f"{linea[:desde]}{nuevo}: {resto}"
+        return linea
+
+    return "\n".join(cambiar(linea) for linea in contenido.split("\n"))
+
 
 def en_parrafos(texto: str, largo: int = 600) -> str:
     """Agrupa oraciones en párrafos de ~600 caracteres separados por una línea en blanco."""

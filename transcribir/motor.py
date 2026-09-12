@@ -8,6 +8,7 @@ from pathlib import Path
 from queue import Queue
 
 import audio
+import biblioteca
 import formatos
 import interlocutores
 import modelos
@@ -27,6 +28,7 @@ class Trabajo:
     origen: Path
     opciones: dict            # idioma, precision, vocabulario, formato, destino
     cliente: str | None = None  # "Claude Code", "Carpeta vigilada"…; None si lo agregó el usuario
+    tarea: str = "transcribir"  # o "tiempos": calcular el resaltado de una ficha ya hecha
 
 
 def ruta_libre(carpeta: Path, nombre: str, extension: str = ".txt") -> Path:
@@ -50,7 +52,7 @@ class Motor(threading.Thread):
 
     Los avisos se entregan con `despachar(funcion, *args)`; en la app los lleva
     al hilo principal. `al_progreso(id, estado, fraccion)` usa -1 para "sin
-    porcentaje", `al_terminar(id, ruta, duracion, segundos)`, `al_fallar(id, motivo)`
+    porcentaje", `al_terminar(id, ruta, duracion, segundos, ficha)`, `al_fallar(id, motivo)`
     y `al_cancelar(id)`. Si falta un modelo, lo descarga antes de transcribir.
     """
 
@@ -124,16 +126,12 @@ class Motor(threading.Thread):
             self._alineador = ForcedAligner(str(ruta))
         return self._alineador
 
-    def _procesar(self, t: Trabajo) -> None:
-        self._revisar(t.id)
-        op = t.opciones
-        por_persona = bool(op.get("personas"))
-        con_tiempos = op["formato"] in ("tiempos", "srt") or por_persona
-        sesion = self._sesion(t, op["precision"])
+    def _escuchar(self, t: Trabajo, con_tiempos: bool):
+        """Lee el audio y lo pasa por el modelo. Devuelve (resultado, muestras, duración)."""
+        sesion = self._sesion(t, t.opciones["precision"])
         alineador = self._obtener_alineador(t) if con_tiempos else None
         self._revisar(t.id)
 
-        inicio = time.perf_counter()
         muestras, duracion = audio.leer(t.origen)
         self._revisar(t.id)
         self._despachar(self._al_progreso, t.id, "Transcribiendo…", 0.0)
@@ -144,9 +142,44 @@ class Motor(threading.Thread):
                 self._despachar(self._al_progreso, t.id, "Transcribiendo…", float(p.get("progress", 0.0)))
 
         resultado = sesion.transcribe(
-            muestras, language=IDIOMAS[op["idioma"]], context=op["vocabulario"] or "",
+            muestras, language=IDIOMAS[t.opciones["idioma"]], context=t.opciones["vocabulario"] or "",
             return_timestamps=con_tiempos, forced_aligner=alineador, on_progress=al_avanzar)
         self._revisar(t.id)
+        return resultado, muestras, duracion
+
+    def _tiempos(self, t: Trabajo) -> None:
+        """Calcula el resaltado de una transcripción que ya existe, sin tocar su texto.
+
+        Vuelve a escuchar el audio para saber cuándo suena cada palabra, pero las
+        palabras son las del archivo: si lo corregiste en el editor, se respeta.
+        """
+        ficha = biblioteca.leer(t.opciones["ficha"])
+        if ficha is None:
+            raise RuntimeError("Esta transcripción ya no está en el historial")
+        contenido = biblioteca.texto(ficha)
+        if contenido is None:
+            raise RuntimeError("No se encontró la transcripción")
+        nombres = list((ficha.get("personas") or {}).values())
+
+        resultado, _, _ = self._escuchar(t, con_tiempos=True)
+        palabras = formatos.palabras_con_tiempo(formatos.limpiar(contenido, nombres),
+                                                resultado.segments or [])
+        if not palabras:
+            raise RuntimeError("No se pudieron calcular los tiempos de las palabras")
+        biblioteca.guardar_palabras(ficha["id"], palabras)
+        self._despachar(self._al_terminar, t.id, str(biblioteca.ubicar(ficha)),
+                        ficha.get("duracion", 0.0), 0.0, ficha["id"])
+
+    def _procesar(self, t: Trabajo) -> None:
+        self._revisar(t.id)
+        if t.tarea == "tiempos":
+            return self._tiempos(t)
+        op = t.opciones
+        por_persona = bool(op.get("personas"))
+        con_tiempos = op["formato"] in ("tiempos", "srt") or por_persona or bool(op.get("tiempos"))
+
+        inicio = time.perf_counter()
+        resultado, muestras, duracion = self._escuchar(t, con_tiempos)
 
         palabras = formatos.palabras_con_tiempo(resultado.text, resultado.segments or []) if con_tiempos else []
         if con_tiempos and not palabras:
@@ -176,4 +209,10 @@ class Motor(threading.Thread):
         carpeta.mkdir(parents=True, exist_ok=True)
         destino = ruta_libre(carpeta, t.origen.stem, extension)
         destino.write_text(contenido + "\n", encoding="utf-8")
-        self._despachar(self._al_terminar, t.id, str(destino), duracion, time.perf_counter() - inicio)
+
+        segundos = time.perf_counter() - inicio
+        ficha = biblioteca.crear(t.origen, destino, op, duracion, segundos, t.cliente,
+                                 len(set(personas)) if personas else 0)
+        if palabras:
+            biblioteca.guardar_palabras(ficha["id"], palabras, personas)
+        self._despachar(self._al_terminar, t.id, str(destino), duracion, segundos, ficha["id"])
