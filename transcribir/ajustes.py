@@ -4,8 +4,8 @@ from pathlib import Path
 
 import objc
 from AppKit import (
-    NSApplication, NSBackingStoreBuffered, NSColor, NSOpenPanel, NSPasteboard,
-    NSPasteboardTypeString, NSScrollView, NSSwitch, NSVisualEffectView, NSWindow,
+    NSApplication, NSBackingStoreBuffered, NSButton, NSColor, NSOpenPanel, NSPasteboard,
+    NSPasteboardTypeString, NSScrollView, NSSwitch, NSVisualEffectView, NSWindow, NSWorkspace,
 )
 from Foundation import NSURL, NSMakeRect, NSNotificationCenter, NSObject
 
@@ -21,6 +21,20 @@ CW = W - PAD * 2
 FILA = 50.0
 RELLENO = 8.0
 CONTROL_W = 196.0          # ancho de los menús desplegables
+
+
+# la app de Apple detrás de cada carpeta, para enseñar su icono de verdad
+ID_APPS = {"notas_voz": "com.apple.VoiceMemos", "notas": "com.apple.Notes"}
+
+
+def icono_app(identificador: str, lado: float = 18.0):
+    """El icono de una app de Apple, como lo enseña el Finder."""
+    url = NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(identificador)
+    imagen = (NSWorkspace.sharedWorkspace().iconForFile_(url.path()) if url is not None
+              else ui.sf("app.fill", lado))
+    if imagen is not None:
+        imagen.setSize_((lado, lado))
+    return imagen
 
 
 def nombre_carpeta(valor: str) -> str:
@@ -40,6 +54,7 @@ class ControladorAjustes(NSObject):
         self.ventana = None
         self.estado = None
         self.controles = {}         # clave -> (tipo, control, valores)
+        self.etiquetas = {}         # clave -> (título, explicación), para atenuar la fila
         self.claves = []            # tag del control -> clave
         return self
 
@@ -139,7 +154,8 @@ class ControladorAjustes(NSObject):
             self.filaInterruptor("Vigilar una carpeta",
                                  "Transcribe sola cada audio o video nuevo mientras la app está abierta",
                                  pref.VIGILAR),
-            self.filaCarpeta("Carpeta vigilada", pref.CARPETA_VIGILADA, conocidas=True),
+            self.filaCarpeta("Carpeta vigilada", pref.CARPETA_VIGILADA),
+            self.filaAtajos(),
         ])
         y = self.seccion(doc, y, "NOTIFICACIONES", [
             self.filaInterruptor("Al terminar cada archivo", "Un aviso por cada transcripción lista",
@@ -182,16 +198,20 @@ class ControladorAjustes(NSObject):
 
     @objc.python_method
     def textos(self, caja, abajo, titulo, explicacion, ancho):
-        caja.addSubview_(ui.label(titulo, 13.0, ui.W_MEDIUM, NSColor.labelColor(),
-                                  NSMakeRect(16, abajo + 26, ancho, 20), ui.ALIGN_LEFT))
-        caja.addSubview_(ui.label(explicacion, 11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                  NSMakeRect(16, abajo + 6, ancho, 18), ui.ALIGN_LEFT,
-                                  truncate=ui.TRUNC_TAIL))
+        etiqueta = ui.label(titulo, 13.0, ui.W_MEDIUM, NSColor.labelColor(),
+                            NSMakeRect(16, abajo + 26, ancho, 20), ui.ALIGN_LEFT)
+        nota = ui.label(explicacion, 11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                        NSMakeRect(16, abajo + 6, ancho, 18), ui.ALIGN_LEFT,
+                        truncate=ui.TRUNC_TAIL)
+        caja.addSubview_(etiqueta)
+        caja.addSubview_(nota)
+        return etiqueta, nota
 
     @objc.python_method
     def filaMenu(self, titulo, explicacion, clave):
         def construir(caja, abajo):
-            self.textos(caja, abajo, titulo, explicacion, CW - 32 - CONTROL_W - 8)
+            self.etiquetas[clave] = self.textos(caja, abajo, titulo, explicacion,
+                                                CW - 32 - CONTROL_W - 8)
             opciones = list(pref.ETIQUETAS[clave].items())
             menu = ui.popup(NSMakeRect(CW - 16 - CONTROL_W, abajo + 12, CONTROL_W, 26),
                             [t for _, t in opciones], self, b"cambiarMenu:", tag=self.registrar(clave))
@@ -225,7 +245,7 @@ class ControladorAjustes(NSObject):
         return FILA, construir
 
     @objc.python_method
-    def filaCarpeta(self, titulo, clave, conocidas=False):
+    def filaCarpeta(self, titulo, clave):
         def construir(caja, abajo):
             caja.addSubview_(ui.icon_view("folder.fill", NSMakeRect(16, abajo + 15, 20, 20),
                                           NSColor.secondaryLabelColor(), 14.0))
@@ -236,11 +256,55 @@ class ControladorAjustes(NSObject):
                              NSMakeRect(196, abajo + (FILA - 17) / 2, CW - 196 - 16 - 96 - 10, 17),
                              ui.ALIGN_RIGHT, truncate=ui.TRUNC_MIDDLE)
             caja.addSubview_(valor)
-            accion = b"menuCarpeta:" if conocidas else b"elegirCarpeta:"
             caja.addSubview_(ui.bezel_button("Elegir…", NSMakeRect(CW - 16 - 96, abajo + 11, 96, 28),
-                                             self, accion, tag=self.registrar(clave)))
+                                             self, b"elegirCarpeta:", tag=self.registrar(clave)))
             self.controles[clave] = ("carpeta", valor, None)
         return FILA, construir
+
+    @objc.python_method
+    def filaAtajos(self):
+        """Vigilar las carpetas de Apple de un toque, con el icono de cada app.
+
+        Son las que se llenan solas por iCloud: lo que grabas en el iPhone aparece
+        aquí sin hacer nada, y esas carpetas no se pueden buscar a mano en el Finder.
+        """
+        self.atajos = [(clave, nombre, ruta, ID_APPS[clave]) for clave, nombre, ruta, _, _
+                       in carpetas.disponibles() if clave in ID_APPS]
+
+        def construir(caja, abajo):
+            if not self.atajos:
+                return
+            caja.addSubview_(ui.label("De un toque", 11.0, ui.W_REGULAR,
+                                      NSColor.tertiaryLabelColor(),
+                                      NSMakeRect(16, abajo + 44, CW - 32, 16), ui.ALIGN_LEFT))
+            self.botones_atajo = []
+            ancho = min((CW - 32 - 10 * (len(self.atajos) - 1)) / len(self.atajos), 190.0)
+            for i, (clave, nombre, ruta, identificador) in enumerate(self.atajos):
+                boton = NSButton.alloc().initWithFrame_(
+                    NSMakeRect(16 + i * (ancho + 10), abajo + 10, ancho, 30))
+                boton.setBezelStyle_(1)
+                boton.setImage_(icono_app(identificador))
+                boton.setImagePosition_(2)            # el icono a la izquierda del texto
+                boton.setImageScaling_(3)             # proporcional
+                boton.setTarget_(self)
+                boton.setAction_(b"vigilarConocida:")
+                boton.setTag_(i)
+                boton.setToolTip_(str(ruta))
+                caja.addSubview_(boton)
+                self.botones_atajo.append((boton, nombre, str(ruta)))
+        return 66.0, construir
+
+    @objc.python_method
+    def sincronizarAtajos(self):
+        """Cada botón dice si ya está vigilando esa carpeta."""
+        vigilando = pref.leer(pref.CARPETA_VIGILADA) if pref.leer(pref.VIGILAR) else ""
+        for boton, nombre, ruta in getattr(self, "botones_atajo", []):
+            activo = vigilando == ruta
+            boton.setAttributedTitle_(ui.attributed(
+                f"Vigilando {nombre}" if activo else f"Vigilar {nombre}", 12.0,
+                ui.W_MEDIUM if activo else ui.W_REGULAR,
+                NSColor.systemGreenColor() if activo else NSColor.labelColor(),
+                ui.ALIGN_CENTER))
 
     @objc.python_method
     def filaHistorial(self):
@@ -336,6 +400,14 @@ class ControladorAjustes(NSObject):
                 control.setStringValue_(carpetas.como_se_llama(valor) if valor
                                         else nombre_carpeta(valor))
                 control.setToolTip_(valor or "")
+        # sin separar por persona, decir cuántas hay no pinta nada
+        separar = bool(pref.leer(pref.PERSONAS))
+        self.controles[pref.CUANTAS][1].setEnabled_(separar)
+        titulo, nota = self.etiquetas[pref.CUANTAS]
+        titulo.setTextColor_(NSColor.labelColor() if separar else NSColor.tertiaryLabelColor())
+        nota.setTextColor_(NSColor.tertiaryLabelColor() if separar
+                           else NSColor.quaternaryLabelColor())
+        self.sincronizarAtajos()
         # la carpeta de destino no cuenta cuando se guarda junto al original
         junto = pref.leer(pref.GUARDAR) == "junto"
         self.controles[pref.CARPETA][1].setTextColor_(
@@ -421,23 +493,14 @@ class ControladorAjustes(NSObject):
             pref.escribir(pref.CARPETA_VIGILADA, carpeta)
         self.guardar(clave, encender)
 
-    def menuCarpeta_(self, sender):
-        """Las carpetas que suelen interesar, sin tener que ir a buscarlas."""
-        self.conocidas = carpetas.disponibles()
-        opciones = [f"{nombre} — {nota}" for _, nombre, _, _, nota in self.conocidas]
-        ui.desplegar_menu(sender, opciones + ["Otra carpeta…"], self, b"elegirConocida:")
-
-    def elegirConocida_(self, sender):
-        clave = self.claves[-1] if not self.claves else pref.CARPETA_VIGILADA
-        if sender.tag() >= len(self.conocidas):
-            carpeta = self.pedirCarpeta(pref.leer(clave))
-            if carpeta is None:
-                return
-        else:
-            carpeta = str(self.conocidas[sender.tag()][2])
-        self.guardar(clave, carpeta)
-        if not pref.leer(pref.VIGILAR):
-            self.guardar(pref.VIGILAR, True)
+    def vigilarConocida_(self, sender):
+        """Empieza —o deja— de vigilar esa carpeta de Apple."""
+        _, _, ruta = self.botones_atajo[sender.tag()]
+        if pref.leer(pref.VIGILAR) and pref.leer(pref.CARPETA_VIGILADA) == ruta:
+            self.guardar(pref.VIGILAR, False)
+            return
+        self.guardar(pref.CARPETA_VIGILADA, ruta)
+        self.guardar(pref.VIGILAR, True)
 
     def elegirCarpeta_(self, sender):
         clave = self.claves[sender.tag()]
