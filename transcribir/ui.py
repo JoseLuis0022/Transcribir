@@ -205,6 +205,12 @@ def etiqueta_cifras(text, size, color, frame, align=ALIGN_LEFT):
     return f
 
 
+def ancho(texto, tamano, peso) -> float:
+    """Lo que mide ese texto con esa letra."""
+    return NSAttributedString.alloc().initWithString_attributes_(
+        texto, {"NSFont": NSFont.systemFontOfSize_weight_(tamano, peso)}).size().width
+
+
 def bezel_button(title, frame, target, action, tag=0, size=12.0):
     b = NSButton.alloc().initWithFrame_(frame)
     b.setBezelStyle_(1)

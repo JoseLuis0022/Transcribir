@@ -2,7 +2,7 @@
 
 Lo que se edita aquí es tu archivo, no una copia: al guardar se sobrescribe el .txt
 (o el .srt) que está en tu carpeta. Si la transcripción tiene tiempos, la palabra que
-suena se resalta y con ⌘-clic saltas a ese momento del audio.
+suena se resalta y con ⌘ + clic saltas a ese momento del audio.
 """
 
 from bisect import bisect_left, bisect_right
@@ -41,10 +41,9 @@ INSPECTOR = "NSToolbarToggleInspectorItem"
 FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
-# cuánto engorda el trazo de la palabra dicha; es un porcentaje del tamaño de la
-# letra, así que se ve igual de marcada con el texto grande o pequeño
-GRUESOS = {"suave": -4.0, "media": -6.0, "fuerte": -8.3}
-GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
+# el peso de la letra de la palabra dicha (0 es normal, 0,4 negrita)
+PESOS = {"suave": 0.23, "media": 0.3, "fuerte": 0.4}
+LETRA, INTERLETRA = "NSFont", "NSKern"
 
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
@@ -81,8 +80,9 @@ class Bloque:
     lee un punto más grande que lo que dice.
     """
 
-    def __init__(self, inicio, fin, desde, hasta, numero, nombre, color, tamano=15.0):
+    def __init__(self, inicio, fin, desde, hasta, numero, nombre, color, tamano=15.0, texto=None):
         self.inicio, self.fin = inicio, fin
+        self.texto = inicio if texto is None else texto   # después del «Ana: » escondido
         self.desde, self.hasta = desde, hasta
         self.numero, self.nombre, self.color = numero, nombre, color
         self.tamano = tamano
@@ -109,7 +109,7 @@ class Bloque:
 # ------------------------------------------------------------------- el texto --
 class VistaTexto(NSTextView):
     """El texto de la transcripción: se edita como en cualquier editor, y además
-    ⌘-clic en una palabra salta a ese momento y ⌥-espacio reproduce o pausa.
+    ⌘ + clic en una palabra salta a ese momento y ⌥ + espacio reproduce o pausa.
 
     En el margen izquierdo se dibuja la hora de cada intervención, que no está en
     el archivo: es solo de la ventana, y se puede pulsar para escuchar desde ahí.
@@ -211,6 +211,7 @@ class Editor(NSObject):
         self.oculto = None
         self.filas_persona = {}
         self.encontrado, self.cual = [], -1
+        self.anchos = {}
         self.veloz = 1
         self.ver_panel = bool(pref.leer(pref.PANEL))
         self.sucio = False
@@ -451,7 +452,7 @@ class Editor(NSObject):
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
         elif self.palabras and self.tiene_audio:
-            caja.addSubview_(ui.label("⌘-clic en una palabra para escucharla desde ahí.",
+            caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
 
@@ -516,7 +517,7 @@ class Editor(NSObject):
 
         x = PAD
         boton("gobackward.15", b"atras:", "15 s atrás", x)
-        self.boton_play = boton("play.fill", b"reproducir:", "Reproducir o pausar (⌥espacio)",
+        self.boton_play = boton("play.fill", b"reproducir:", "Reproducir o pausar (⌥ + espacio)",
                                 x + 32, 22.0)
         boton("goforward.15", b"adelante:", "15 s adelante", x + 64)
 
@@ -619,7 +620,8 @@ class Editor(NSObject):
                             linea[:largo].rstrip(": ") if largo else "",
                             colores[(int(numero) - 1) % len(colores)] if numero
                             else NSColor.secondaryLabelColor(),
-                            tamano=self.lectura + 3)
+                            tamano=self.lectura + 3,
+                            texto=posicion + min(largo + 1, fin - posicion))
             self.bloques.append(bloque)
             if largo:                            # el «Ana:» se dibuja arriba, no en la línea
                 almacen.addAttributes_range_({"NSFont": INVISIBLE, "NSColor": NSColor.clearColor()},
@@ -992,7 +994,7 @@ class Editor(NSObject):
 
     @objc.python_method
     def saltarACaracter(self, posicion):
-        """⌘-clic: suena desde la palabra que se ha pulsado."""
+        """⌘ + clic: suena desde la palabra que se ha pulsado."""
         for inicio, fin, desde, _ in self.mapa:
             if inicio <= posicion <= fin:
                 self.buscar(desde)
@@ -1075,7 +1077,7 @@ class Editor(NSObject):
         if i < 0 or t > self.mapa[i][3] + 0.5:
             i = None
         largo_texto = len(self.contenido())
-        grueso = GRUESOS.get(pref.leer(pref.FUERZA), GRUESOS["fuerte"])
+        peso = PESOS.get(pref.leer(pref.FUERZA), PESOS["fuerte"])
         deseado, bloque = {}, None
         if i is not None:
             inicio, fin, desde, hasta = self.mapa[i]
@@ -1088,12 +1090,12 @@ class Editor(NSObject):
                 resto = justo - enteras
                 # lo ya dicho de esta intervención se queda marcado, como en Apple
                 # Music: la luz no se apaga hasta que acaba quien está hablando
-                dicho = inicio + enteras - bloque.inicio
+                dicho = inicio + enteras - bloque.texto
                 if dicho > 0:
-                    deseado[(bloque.inicio, dicho)] = grueso
+                    deseado[(bloque.texto, dicho)] = peso
                 if enteras < letras and resto > 0.03:
-                    # la letra en la que va la voz entra poco a poco, no de golpe
-                    deseado[(inicio + enteras, 1)] = round(grueso * resto, 2)
+                    # la letra en la que va la voz engorda poco a poco, no de golpe
+                    deseado[(inicio + enteras, 1)] = round(peso * resto, 3)
                 if self.sonando():
                     self.texto.scrollRangeToVisible_(NSMakeRange(inicio, letras))
         if bloque is not self.bloque_activo:
@@ -1102,8 +1104,8 @@ class Editor(NSObject):
         queda = 1.0 - (segundo - self.cambio) / SOLTAR_BLOQUE
         if self.anterior is not None and 0.04 < queda <= 1.0 \
                 and self.anterior.fin <= largo_texto:
-            deseado[(self.anterior.inicio, self.anterior.fin - self.anterior.inicio)] = \
-                round(grueso * queda ** 1.8, 2)
+            deseado[(self.anterior.texto, self.anterior.fin - self.anterior.texto)] = \
+                round(peso * queda ** 1.8, 3)
         self.resaltada = i
         self.aplicarGrosor(deseado)
 
@@ -1119,26 +1121,44 @@ class Editor(NSObject):
     def aplicarGrosor(self, deseado):
         """Deja puesto justo lo que toca, tocando solo lo que cambió.
 
-        El grosor va en el almacén de texto (los atributos temporales no lo
-        admiten). Solo cambia cómo se dibuja la letra, no las letras: el archivo
-        que se guarda es el mismo y el deshacer no se entera.
+        Se cambia la letra a una más gruesa de verdad, no un trazo engordado: el
+        trazo ensancha el dibujo sin dar más sitio y acaba comiéndose el hueco
+        entre letras. La negrita sí ocupa un pelín más, así que se compensa con
+        interletraje para que la línea mida exactamente lo mismo y nada se mueva.
         """
         if deseado == self.pintadas:
             return
         almacen = self.texto.textStorage()
+        normal = NSFont.systemFontOfSize_(self.lectura)
         almacen.beginEditing()
         for rango in list(self.pintadas):
             if deseado.get(rango) != self.pintadas[rango]:
-                almacen.removeAttribute_range_(GROSOR, NSMakeRange(*rango))
-                almacen.removeAttribute_range_(TRAZO, NSMakeRange(*rango))
+                almacen.addAttribute_value_range_(LETRA, normal, NSMakeRange(*rango))
+                almacen.removeAttribute_range_(INTERLETRA, NSMakeRange(*rango))
                 del self.pintadas[rango]
-        for rango, grosor in deseado.items():
+        for rango, peso in deseado.items():
             if rango in self.pintadas:
                 continue
-            almacen.addAttributes_range_({GROSOR: grosor, TRAZO: NSColor.labelColor()},
-                                         NSMakeRange(*rango))
-            self.pintadas[rango] = grosor
+            trozo = self.contenido()[rango[0]:rango[0] + rango[1]]
+            almacen.addAttributes_range_(
+                {LETRA: NSFont.systemFontOfSize_weight_(self.lectura, peso),
+                 INTERLETRA: self.compensar(trozo, peso)}, NSMakeRange(*rango))
+            self.pintadas[rango] = peso
         almacen.endEditing()
+
+    @objc.python_method
+    def compensar(self, trozo, peso):
+        """Cuánto hay que apretar cada letra para que la negrita mida lo mismo."""
+        if not trozo or peso <= 0:
+            return 0.0
+        clave = (trozo, round(peso, 3), self.lectura)
+        if clave not in self.anchos:
+            de_menos = (ui.ancho(trozo, self.lectura, ui.W_REGULAR)
+                        - ui.ancho(trozo, self.lectura, peso))
+            self.anchos[clave] = de_menos / len(trozo)
+            if len(self.anchos) > 4000:
+                self.anchos.clear()
+        return self.anchos[clave]
 
     @objc.python_method
     def resaltarFondo(self, segundo):
@@ -1171,8 +1191,10 @@ class Editor(NSObject):
         almacen = self.texto.textStorage()
         todo = NSMakeRange(0, almacen.length())
         almacen.beginEditing()
-        almacen.removeAttribute_range_(GROSOR, todo)
-        almacen.removeAttribute_range_(TRAZO, todo)
+        for rango in self.pintadas:
+            almacen.addAttribute_value_range_(
+                LETRA, NSFont.systemFontOfSize_(self.lectura), NSMakeRange(*rango))
+        almacen.removeAttribute_range_(INTERLETRA, todo)
         almacen.endEditing()
         self.texto.layoutManager().removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, todo)
         self.pintadas = {}
