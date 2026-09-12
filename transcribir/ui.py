@@ -168,6 +168,15 @@ def attributed(text, size, weight, color, align=ALIGN_CENTER):
                "NSColor": color, "NSParagraphStyle": para})
 
 
+def cifras(text, size, color, weight=W_MEDIUM):
+    """Texto con cifras de ancho fijo: los tiempos no bailan al cambiar."""
+    para = NSMutableParagraphStyle.alloc().init()
+    para.setAlignment_(ALIGN_LEFT)
+    return NSAttributedString.alloc().initWithString_attributes_(
+        text, {"NSFont": NSFont.monospacedDigitSystemFontOfSize_weight_(size, weight),
+               "NSColor": color, "NSParagraphStyle": para})
+
+
 def bezel_button(title, frame, target, action, tag=0, size=12.0):
     b = NSButton.alloc().initWithFrame_(frame)
     b.setBezelStyle_(1)
