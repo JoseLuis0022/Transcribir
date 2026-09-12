@@ -10,7 +10,7 @@ from pathlib import Path
 
 import objc
 from AppKit import (
-    NSApplication, NSBackingStoreBuffered, NSColor, NSCursor, NSFont, NSSavePanel,
+    NSApplication, NSBackingStoreBuffered, NSButton, NSColor, NSCursor, NSFont, NSSavePanel,
     NSScrollView, NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
 )
 from AVFoundation import AVPlayer, AVPlayerItem
@@ -23,9 +23,10 @@ import formatos
 import preferencias as pref
 import ui
 
-W, H = 760.0, 680.0
+W, H = 980.0, 700.0
+PANEL_W = 268.0                  # el panel de la derecha
 PAD = 24.0
-CABECERA, PERSONAS_H, TRANSPORTE = 92.0, 40.0, 64.0
+CABECERA, TRANSPORTE = 92.0, 64.0
 TOPE = 30.0                      # aire de los botones de la ventana, que van encima
 SALTO = 15.0                     # los segundos que retroceden o adelantan los botones
 ESCALA = 600                     # precisión de los tiempos del reproductor
@@ -225,20 +226,22 @@ class Editor(NSObject):
         fondo.setAutoresizingMask_(ANCHO_FLEX | ALTO_FLEX)
         self.ventana.setContentView_(fondo)
 
-        alto_personas = PERSONAS_H if self.personas() else 0.0
-        self.construirCabecera(fondo, alto_personas)
-        self.construirTexto(fondo, alto_personas)
+        self.ver_panel = bool(pref.leer(pref.PANEL))
+        self.construirCabecera(fondo)
+        self.construirPanel(fondo)
+        self.construirTexto(fondo)
         self.construirTransporte(fondo)
+        self.colocar()
 
     @objc.python_method
-    def construirCabecera(self, fondo, alto_personas):
-        alto = CABECERA + alto_personas
+    def construirCabecera(self, fondo):
+        alto = CABECERA
         barra = NSView.alloc().initWithFrame_(NSMakeRect(0, H - alto, W, alto))
         barra.setAutoresizingMask_(PEGADO_ARRIBA)
         fondo.addSubview_(barra)
 
         lado, hueco = 26.0, 4.0
-        ancho_botones = lado * 3 + hueco * 2
+        ancho_botones = lado * 4 + hueco * 3
         arriba = alto - TOPE - 22.0
         ancho_texto = W - PAD * 2 - ancho_botones - 16
         barra.addSubview_(ui.label(self.ficha.get("nombre", ""), 15.0, ui.W_SEMIBOLD,
@@ -252,15 +255,14 @@ class Editor(NSObject):
         derecha, botones = ui.barra_iconos(
             [("square.and.arrow.up", b"menuExportar:", "Exportar a PDF o a Word"),
              ("folder", b"mostrarEnFinder:", "Mostrar en Finder"),
-             ("square.and.arrow.down", b"guardarDocumento:", "Guardar los cambios (⌘S)")],
+             ("square.and.arrow.down", b"guardarDocumento:", "Guardar los cambios (⌘S)"),
+             ("sidebar.right", b"alternarPanel:", "Mostrar u ocultar el panel")],
             NSMakeRect(W - PAD - ancho_botones, arriba - 4, ancho_botones, lado), self)
         derecha.setAutoresizingMask_(8 | 1)          # pegado a la derecha y arriba
         barra.addSubview_(derecha)
-        self.boton_exportar, _, self.boton_guardar = botones
+        self.boton_exportar, _, self.boton_guardar, self.boton_panel = botones
         self.boton_guardar.setEnabled_(False)
-
-        if alto_personas:
-            self.construirPersonas(barra)
+        barra.addSubview_(ui.hairline(NSMakeRect(0, 0, W, 1)))
 
     @objc.python_method
     def personas(self):
@@ -269,40 +271,138 @@ class Editor(NSObject):
         nombres = self.ficha.get("personas") or {}
         return [str(n) for n in range(1, cuantas + 1)] or sorted(nombres)
 
+    # ------------------------------------------------------------------ panel --
     @objc.python_method
-    def construirPersonas(self, barra):
-        """Una pastilla por persona: se pulsa para ponerle nombre."""
-        self.fila_personas = NSView.alloc().initWithFrame_(NSMakeRect(0, 4, W, PERSONAS_H - 8))
-        self.fila_personas.setAutoresizingMask_(ANCHO_FLEX)
-        barra.addSubview_(self.fila_personas)
-        self.pintarPersonas()
+    def construirPanel(self, fondo):
+        """La columna de la derecha: quién habla, de dónde viene y qué tiene."""
+        self.panel = NSView.alloc().initWithFrame_(
+            NSMakeRect(W - PANEL_W, TRANSPORTE, PANEL_W, H - CABECERA - TRANSPORTE))
+        fondo.addSubview_(self.panel)
+        self.raya_panel = ui.hairline(NSMakeRect(0, 0, 1, self.panel.frame().size.height))
+        self.raya_panel.setAutoresizingMask_(ALTO_FLEX)
+        self.panel.addSubview_(self.raya_panel)
+        self.dentro_panel = NSView.alloc().initWithFrame_(
+            NSMakeRect(1, 0, PANEL_W - 1, self.panel.frame().size.height))
+        self.dentro_panel.setAutoresizingMask_(ALTO_FLEX)
+        self.panel.addSubview_(self.dentro_panel)
+        self.pintarPanel()
 
     @objc.python_method
-    def pintarPersonas(self):
-        for vista in list(self.fila_personas.subviews()):
+    def pintarPanel(self):
+        caja = self.dentro_panel
+        for vista in list(caja.subviews()):
             vista.removeFromSuperview()
+        ancho = caja.frame().size.width
+        margen = 18.0
+        util = ancho - margen * 2
+        y = [caja.frame().size.height - 22.0]        # se va bajando desde arriba
+
+        def titulo(texto, aire=0.0):
+            y[0] -= 16 + aire
+            caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
+            y[0] -= 8
+
+        def dato(etiqueta, valor):
+            y[0] -= 22
+            caja.addSubview_(ui.label(etiqueta, 11.5, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                                      NSMakeRect(margen, y[0] + 3, util * 0.45, 15), ui.ALIGN_LEFT))
+            caja.addSubview_(ui.label(valor, 11.5, ui.W_MEDIUM, NSColor.labelColor(),
+                                      NSMakeRect(margen + util * 0.45, y[0] + 3, util * 0.55, 15),
+                                      ui.ALIGN_RIGHT, truncate=ui.TRUNC_MIDDLE))
+
         nombres = self.ficha.get("personas") or {}
-        colores = [NSColor.systemPurpleColor(), NSColor.systemTealColor(), NSColor.systemOrangeColor(),
-                   NSColor.systemPinkColor(), NSColor.systemIndigoColor()]
-        x = PAD
-        for i, numero in enumerate(self.personas()):
-            titulo = (nombres.get(numero) or "").strip() or f"Persona {numero}"
-            color = colores[i % len(colores)]
-            boton = ui.pill_button(titulo, "person.fill", color, self, b"renombrarPersona:", tag=int(numero))
-            boton.setFrameOrigin_((x, 3))
-            boton.setToolTip_("Ponle su nombre")
-            self.fila_personas.addSubview_(boton)
-            x += boton.frame().size.width + 8
+        quienes = self.personas()
+        if quienes:
+            titulo("PERSONAS")
+            for i, numero in enumerate(quienes):
+                y[0] -= 32
+                color = ui.COLORES_PERSONA[i % len(ui.COLORES_PERSONA)]
+                fila = ui.rounded(NSMakeRect(margen, y[0], util, 28), 7.0,
+                                  fill=color.colorWithAlphaComponent_(0.16), clase=ui.Decorativa)
+                caja.addSubview_(fila)
+                fila.addSubview_(ui.label((nombres.get(numero) or "").strip() or f"Persona {numero}",
+                                          12.5, ui.W_SEMIBOLD, color,
+                                          NSMakeRect(10, (28 - 16) / 2, util - 46, 16), ui.ALIGN_LEFT,
+                                          truncate=ui.TRUNC_TAIL))
+                fila.addSubview_(ui.label(numero, 11.0, ui.W_SEMIBOLD,
+                                          color.colorWithAlphaComponent_(0.75),
+                                          NSMakeRect(util - 28, (28 - 15) / 2, 18, 15), ui.ALIGN_CENTER))
+                boton = NSButton.alloc().initWithFrame_(NSMakeRect(margen, y[0], util, 28))
+                boton.setBordered_(False)
+                boton.setTitle_("")
+                boton.setTarget_(self)
+                boton.setAction_(b"renombrarPersona:")
+                boton.setTag_(int(numero))
+                boton.setToolTip_("Ponle su nombre")
+                caja.addSubview_(boton)
+            y[0] -= 10
+
+        ruta = biblioteca.ubicar(self.ficha)
+        ajustes = self.ficha.get("ajustes") or {}
+        titulo("DETALLES", aire=6.0)
+        dato("Duración", formatos.duracion_corta(self.ficha.get("duracion") or 0))
+        dato("Fecha", exportar.fecha_corta(self.ficha.get("creado")))
+        dato("Idioma", {"es": "Español", "en": "Inglés"}.get(ajustes.get("idioma"), "Automático"))
+        dato("Precisión", "Máxima" if ajustes.get("precision") == "alta" else "Rápida")
+        dato("Formato", {"parrafos": "Párrafos", "tiempos": "Con tiempos",
+                         "srt": "Subtítulos"}.get(self.ficha.get("formato"), "Párrafos"))
+        if ruta is not None:
+            dato("Carpeta", "Escritorio" if ruta.parent == biblioteca.ESCRITORIO else ruta.parent.name)
+        if self.ficha.get("cliente"):
+            dato("Lo pidió", self.ficha["cliente"])
+
+        titulo("RESALTADO", aire=10.0)
+        if self.palabras:
+            y[0] -= 34
+            caja.addSubview_(ui.label(
+                "Listo. ⌘-clic en una palabra para escucharla desde ahí.",
+                11.5, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                NSMakeRect(margen, y[0], util, 32), ui.ALIGN_LEFT))
+        elif self.tiene_audio:
+            y[0] -= 30
+            caja.addSubview_(ui.label(
+                "Esta transcripción no guardó cuándo suena cada palabra.",
+                11.5, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                NSMakeRect(margen, y[0], util, 28), ui.ALIGN_LEFT))
+            y[0] -= 32
+            self.boton_tiempos = ui.bezel_button("Calcular los tiempos",
+                                                 NSMakeRect(margen, y[0], util, 28),
+                                                 self, b"activarResaltado:")
+            self.boton_tiempos.setToolTip_(
+                "Vuelve a escuchar el audio para saber cuándo suena cada palabra.\n"
+                "Tu texto no cambia: se respeta tal como está.")
+            caja.addSubview_(self.boton_tiempos)
+        else:
+            y[0] -= 30
+            caja.addSubview_(ui.label("No se encontró el audio original.",
+                                      11.5, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                      NSMakeRect(margen, y[0], util, 28), ui.ALIGN_LEFT))
+
+    def alternarPanel_(self, sender):
+        self.ver_panel = not self.ver_panel
+        pref.escribir(pref.PANEL, self.ver_panel)
+        self.colocar()
 
     @objc.python_method
-    def construirTexto(self, fondo, alto_personas):
-        alto = H - CABECERA - alto_personas - TRANSPORTE
+    def colocar(self):
+        """Reparte el ancho de la ventana entre el texto y el panel."""
+        marco = self.ventana.contentView().frame()
+        alto = marco.size.height - CABECERA - TRANSPORTE
+        self.panel.setHidden_(not self.ver_panel)
+        self.panel.setFrame_(NSMakeRect(marco.size.width - PANEL_W, TRANSPORTE, PANEL_W, alto))
+        ancho_texto = marco.size.width - PAD - (PANEL_W + 8 if self.ver_panel else PAD)
+        self.scroll.setFrame_(NSMakeRect(PAD, TRANSPORTE, max(ancho_texto, 200.0), alto))
+        self.texto.setFrameSize_((self.scroll.contentSize().width, self.texto.frame().size.height))
+        self.ajustarColumna()
+
+    @objc.python_method
+    def construirTexto(self, fondo):
+        alto = H - CABECERA - TRANSPORTE
         marco = NSMakeRect(PAD, TRANSPORTE, W - PAD * 2, alto)
-        scroll = NSScrollView.alloc().initWithFrame_(marco)
+        self.scroll = scroll = NSScrollView.alloc().initWithFrame_(marco)
         scroll.setHasVerticalScroller_(True)
         scroll.setAutohidesScrollers_(True)
         scroll.setDrawsBackground_(False)
-        scroll.setAutoresizingMask_(ANCHO_FLEX | ALTO_FLEX)
 
         ancho = marco.size.width
         self.texto = VistaTexto.alloc().initWithFrame_(NSMakeRect(0, 0, ancho, alto))
@@ -355,7 +455,7 @@ class Editor(NSObject):
                               NSMakeRect(PAD + 102, y + 4, 96, 16), ui.ALIGN_LEFT)
         barra.addSubview_(self.tiempo)
 
-        ancho_barra = W - (PAD + 206) - (PAD + 160)
+        ancho_barra = W - (PAD + 206) - (PAD + 92)
         self.barra = NSSlider.alloc().initWithFrame_(NSMakeRect(PAD + 206, y + 2, ancho_barra, 20))
         self.barra.setMinValue_(0.0)
         self.barra.setMaxValue_(max(self.ficha.get("duracion") or 1.0, 1.0))
@@ -364,20 +464,14 @@ class Editor(NSObject):
         self.barra.setAutoresizingMask_(ANCHO_FLEX)
         barra.addSubview_(self.barra)
 
-        derecha = NSView.alloc().initWithFrame_(NSMakeRect(W - PAD - 152, y - 3, 152, 30))
+        derecha = NSView.alloc().initWithFrame_(NSMakeRect(W - PAD - 76, y - 3, 76, 30))
         derecha.setAutoresizingMask_(1 | 8)
         barra.addSubview_(derecha)
-        self.velocidad = ui.popup(NSMakeRect(152 - 76, 2, 76, 24), [t for _, t in VELOCIDADES],
+        self.velocidad = ui.popup(NSMakeRect(0, 2, 76, 24), [t for _, t in VELOCIDADES],
                                   self, b"cambiarVelocidad:")
         self.velocidad.selectItemAtIndex_(1)
         self.velocidad.setToolTip_("Velocidad de reproducción")
         derecha.addSubview_(self.velocidad)
-        self.boton_tiempos = ui.bezel_button("Activar resaltado", NSMakeRect(0, 1, 140, 26),
-                                             self, b"activarResaltado:")
-        self.boton_tiempos.setToolTip_(
-            "Vuelve a escuchar el audio para saber cuándo suena cada palabra.\n"
-            "Tu texto no cambia: se respeta tal como está.")
-        derecha.addSubview_(self.boton_tiempos)
 
     # -------------------------------------------------------------- contenido --
     @objc.python_method
@@ -501,7 +595,7 @@ class Editor(NSObject):
         self.texto.setNeedsDisplay_(True)
 
     def windowDidResize_(self, notificacion):
-        self.ajustarColumna()
+        self.colocar()
 
     @objc.python_method
     def altoDeBloque(self, bloque):
@@ -630,14 +724,10 @@ class Editor(NSObject):
         if ruta is not None:
             partes.append("en el Escritorio" if ruta.parent == biblioteca.ESCRITORIO
                           else f"en «{ruta.parent.name}»")
-        if self.palabras and self.tiene_audio:
-            partes.append("⌘-clic en una palabra para escucharla")
-        elif self.tiene_audio:
-            partes.append("sin tiempos todavía")
         self.detalle.setStringValue_(" · ".join(partes))
         self.detalle.setToolTip_(str(ruta) if ruta else "")
-        if hasattr(self, "boton_tiempos"):
-            self.boton_tiempos.setHidden_(bool(self.palabras))
+        if getattr(self, "dentro_panel", None) is not None:
+            self.pintarPanel()
 
     @objc.python_method
     def marcarSucio(self, sucio):
@@ -918,8 +1008,9 @@ class Editor(NSObject):
 
     def activarResaltado_(self, sender):
         if self.dueno.calcularTiempos(self.ficha) is not None:
-            self.boton_tiempos.setEnabled_(False)
-            self.detalle.setStringValue_("Calculando los tiempos: se está escuchando el audio…")
+            sender.setEnabled_(False)
+            sender.setAttributedTitle_(ui.attributed("Calculando…", 12.0, ui.W_REGULAR,
+                                                     NSColor.secondaryLabelColor()))
 
     def mostrarEnFinder_(self, sender):
         ruta = biblioteca.ubicar(self.ficha)
@@ -953,14 +1044,12 @@ class Editor(NSObject):
 
     # --------------------------------------------------------------- personas --
     def renombrarPersona_(self, sender):
+        """La fila del panel se convierte en un campo, en su sitio."""
         marco = sender.frame()
-        self.pastilla_oculta = sender          # la pastilla se aparta: el campo ocupa su sitio
-        sender.setHidden_(True)
         self.campoNombre(sender.tag(),
                          ui.COLORES_PERSONA[(sender.tag() - 1) % len(ui.COLORES_PERSONA)],
-                         self.fila_personas,
-                         NSMakeRect(marco.origin.x, marco.origin.y - 1,
-                                    max(marco.size.width + 60, 150), 24), 11.5)
+                         self.dentro_panel, NSMakeRect(marco.origin.x, marco.origin.y,
+                                                       marco.size.width, 28), 12.5)
 
     @objc.python_method
     def renombrarPersonas(self, nombres):
@@ -977,5 +1066,5 @@ class Editor(NSObject):
             biblioteca.escribir_texto(self.ficha, nuevo)
         except OSError as e:
             self.dueno.alerta("No se pudo guardar", str(e), ["Aceptar"])
-        self.pintarPersonas()
+        self.pintarPanel()
         self.dueno.alGuardarFicha(self.ficha)

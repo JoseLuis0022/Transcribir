@@ -24,6 +24,7 @@ PAGINA = (612.0, 792.0)          # carta, en puntos
 MARGEN = 64.0
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
          "septiembre", "octubre", "noviembre", "diciembre")
+MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic")
 
 
 class ErrorExportar(Exception):
@@ -33,6 +34,12 @@ class ErrorExportar(Exception):
 def fecha_larga(cuando: float) -> str:
     t = time.localtime(cuando or time.time())
     return f"{t.tm_mday} de {MESES[t.tm_mon - 1]} de {t.tm_year}"
+
+
+def fecha_corta(cuando: float) -> str:
+    """«11 sept 2026», para donde no cabe la fecha entera."""
+    t = time.localtime(cuando or time.time())
+    return f"{t.tm_mday} {MESES_CORTOS[t.tm_mon - 1]} {t.tm_year}"
 
 
 def _parrafo(espacio_despues=9.0, interlineado=4.0):
