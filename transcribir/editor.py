@@ -5,6 +5,7 @@ Lo que se edita aquí es tu archivo, no una copia: al guardar se sobrescribe el 
 suena se resalta y con ⌘ + clic saltas a ese momento del audio.
 """
 
+import os
 from bisect import bisect_left, bisect_right
 from pathlib import Path
 
@@ -43,8 +44,11 @@ FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
 # el peso de la letra de la palabra dicha (0 es normal, 0,4 negrita)
-PESOS = {"suave": 0.16, "media": 0.23, "fuerte": 0.3}
-TENUE = 0.45                     # lo que se apaga lo que aún no se ha dicho
+# cuánto engorda el trazo de la palabra dicha; es un porcentaje del tamaño de la
+# letra, así que se ve igual con el texto grande o pequeño. Por encima de -6 las
+# letras se acercan demasiado entre sí y cuesta leerlas.
+GRUESOS = {"suave": -3.0, "media": -4.5, "fuerte": -6.0}
+GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
@@ -217,8 +221,7 @@ class Editor(NSObject):
         self.oculto = None
         self.filas_persona = {}
         self.encontrado, self.cual = [], -1
-        self.apagado = None                   # lo que falta por decir, en gris
-        self.capa, self.capa_rango, self.capas = None, None, []
+        self.pintadas = {}                    # qué trozos están marcados ahora
         self.pastilla = self.destino = None    # el fondo que se desliza
         self.veloz = 1
         self.ver_panel = bool(pref.leer(pref.PANEL))
@@ -234,8 +237,11 @@ class Editor(NSObject):
 
     @objc.python_method
     def mostrar(self, segundo=None):
-        self.ventana.makeKeyAndOrderFront_(None)
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        if os.environ.get("TRANSCRIBIR_SEGUNDO_PLANO"):
+            self.ventana.orderFrontRegardless()      # sin quitarle el foco a nadie
+        else:
+            self.ventana.makeKeyAndOrderFront_(None)
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         if segundo is not None and self.reproductor is not None:
             self.buscar(float(segundo))
 
@@ -362,12 +368,19 @@ class Editor(NSObject):
         util = ancho - margen * 2
         y = [18.0]                                # de arriba hacia abajo (vista volteada)
 
-        def titulo(texto, primero=False):
+        def titulo(texto, primero=False, beta=False):
             if not primero:
                 y[0] += 14
                 caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
                 y[0] += 16
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
+            if beta:
+                ancho_titulo = ui.attributed(texto, 11.5, ui.W_SEMIBOLD,
+                                             NSColor.secondaryLabelColor()).size().width
+                marca = ui.pill("BETA", "hammer.fill", NSColor.systemOrangeColor(),
+                                alto=15.0, tamano=9.0)
+                marca.setFrameOrigin_((margen + ancho_titulo + 8, y[0] - 1))
+                caja.addSubview_(marca)
             y[0] += 22
 
         def control(etiqueta, vista, alto=22.0):
@@ -431,7 +444,7 @@ class Editor(NSObject):
         if self.ficha.get("cliente"):
             dato("Lo pidió", self.ficha["cliente"])
 
-        titulo("RESALTADO")
+        titulo("RESALTADO", beta=True)
         if self.tiene_audio:
             tipos = [pref.ETIQUETAS[pref.RESALTADO][c] for c in ("palabra", "fondo")]
             menu_tipo = ui.popup(NSMakeRect(0, 0, 10, 22), tipos, self, b"elegirResaltado:")
@@ -1066,49 +1079,56 @@ class Editor(NSObject):
     # -------------------------------------------------------------- resaltado --
     @objc.python_method
     def resaltar(self, segundo):
-        """Marca la palabra que suena, sin tocar el texto ni el deshacer."""
+        """Marca la palabra que suena, sin tocar el texto ni el deshacer.
+
+        Se pinta sobre el propio texto (atributos temporales del gestor de
+        composición): nada de capas encima, así que encaja perfecto por definición.
+        La negrita se hace engordando el trazo de la letra, que no cambia el ancho
+        de avance y por eso el renglón no se mueve ni un píxel.
+        """
         if not self.mapa:
             return
         if pref.leer(pref.RESALTADO) == "fondo":
             self.resaltarFondo(segundo)
             return
-        # la siguiente entra un pelín antes de que acabe la anterior
+        # la siguiente empieza a marcarse un pelín antes de que acabe la anterior,
+        # para que una entre mientras la otra sale y no haya saltos
         t = segundo + ANTICIPO
         i = bisect_right(self.inicios, t) - 1
-        if i < 0 or t > self.mapa[i][3] + 0.4:
+        if i < 0 or t > self.mapa[i][3] + 0.5:
             i = None
-        if i != self.resaltada:
-            self.resaltada = i
-            self.marcarPalabra(i, PESOS.get(pref.leer(pref.FUERZA), PESOS["fuerte"]))
-            if i is not None and self.sonando():
-                inicio, fin, _, _ = self.mapa[i]
-                self.texto.scrollRangeToVisible_(NSMakeRange(inicio, fin - inicio))
-        # lo que falta por decir de esta intervención se apaga un poco
-        falta = None
+        largo_texto = len(self.contenido())
+        grueso = GRUESOS.get(pref.leer(pref.FUERZA), GRUESOS["fuerte"])
+        deseado, bloque = {}, None
         if i is not None:
-            bloque = self.bloqueDe(self.mapa[i][0])
-            if bloque is not None and self.mapa[i][1] <= len(self.contenido()) \
-                    and self.mapa[i][1] < bloque.fin:
-                falta = (self.mapa[i][1], bloque.fin - self.mapa[i][1])
-        self.atenuar(falta)
-
-    @objc.python_method
-    def atenuar(self, rango):
-        """Apaga un poco lo que aún no se ha dicho de esta intervención.
-
-        Es color, no letra: no cambia la composición ni un píxel, y es lo que hace
-        que la palabra que suena destaque sin tener que engordar nada.
-        """
-        if rango == self.apagado:
-            return
-        gestor = self.texto.layoutManager()
-        if self.apagado is not None:
-            gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", NSMakeRange(*self.apagado))
-        self.apagado = rango
-        if rango is not None:
-            gestor.addTemporaryAttributes_forCharacterRange_(
-                {"NSColor": NSColor.labelColor().colorWithAlphaComponent_(TENUE)},
-                NSMakeRange(*rango))
+            inicio, fin, desde, hasta = self.mapa[i]
+            bloque = self.bloqueDe(inicio)
+            if fin <= largo_texto and bloque is not None:
+                letras = fin - inicio
+                avance = min(max((t - desde) / max(hasta - desde, 0.08), 0.0), 1.0)
+                justo = avance * letras
+                enteras = min(int(justo), letras)
+                resto = justo - enteras
+                # lo ya dicho de esta intervención se queda marcado, como en Apple
+                # Music: la luz no se apaga hasta que acaba quien está hablando
+                dicho = inicio + enteras - bloque.inicio
+                if dicho > 0:
+                    deseado[(bloque.inicio, dicho)] = grueso
+                if enteras < letras and resto > 0.03:
+                    # la letra en la que va la voz entra poco a poco, no de golpe
+                    deseado[(inicio + enteras, 1)] = round(grueso * resto, 2)
+                if self.sonando():
+                    self.texto.scrollRangeToVisible_(NSMakeRange(inicio, letras))
+        if bloque is not self.bloque_activo:
+            self.anterior, self.bloque_activo, self.cambio = self.bloque_activo, bloque, segundo
+        # al cambiar de intervención, la anterior se va apagando poco a poco
+        queda = 1.0 - (segundo - self.cambio) / SOLTAR_BLOQUE
+        if self.anterior is not None and 0.04 < queda <= 1.0 \
+                and self.anterior.fin <= largo_texto:
+            deseado[(self.anterior.inicio, self.anterior.fin - self.anterior.inicio)] = \
+                round(grueso * queda ** 1.8, 2)
+        self.resaltada = i
+        self.aplicarGrosor(deseado)
 
     @objc.python_method
     def bloqueDe(self, posicion):
@@ -1119,67 +1139,29 @@ class Editor(NSObject):
         return None
 
     @objc.python_method
-    def marcarPalabra(self, i, peso):
-        """Pinta la palabra en negrita ENCIMA del texto, sin tocarlo.
+    def aplicarGrosor(self, deseado):
+        """Deja puesto justo lo que toca, tocando solo lo que cambió.
 
-        Cambiar la letra de verdad obliga a apretar las letras entre sí para que
-        la línea siga midiendo lo mismo, y eso se ve: las letras se pegan. Así no:
-        la composición no se entera, y lo que se ve es un dibujo encima.
+        El grosor va en el almacén de texto (los atributos temporales no lo
+        admiten). Solo cambia cómo se dibuja la letra, no las letras: el archivo
+        que se guarda es el mismo y el deshacer no se entera.
         """
-        self.soltarCapa()
-        if i is None or i >= len(self.mapa):
+        if deseado == self.pintadas:
             return
-        inicio, fin, _, _ = self.mapa[i]
-        if fin > len(self.contenido()):
-            return
-        rango = NSMakeRange(inicio, fin - inicio)
-        palabra = self.contenido()[inicio:fin]
-        if not palabra.strip():
-            return
-        gestor, cont = self.texto.layoutManager(), self.texto.textContainer()
-        glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
-        marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, cont)
-        if marco.size.width <= 0:
-            return
-        origen = self.texto.textContainerOrigin()
-
-        capa = ui.CATextLayer.layer()
-        capa.setContentsScale_(self.ventana.backingScaleFactor() or 2.0)
-        capa.setAlignmentMode_("left")
-        capa.setString_(ui.attributed(palabra, self.lectura, peso, NSColor.labelColor(),
-                                      ui.ALIGN_LEFT))
-        capa.setFrame_(NSMakeRect(marco.origin.x + origen.x,
-                                  marco.origin.y + origen.y + (marco.size.height - self.lectura
-                                                               - 5) / 2,
-                                  marco.size.width + 14, self.lectura + 5))
-        self.texto.layer().addSublayer_(capa)
-        if not ui.poca_animacion():
-            capa.addAnimation_forKey_(ui.suave("opacity", 0.0, 1.0, 0.12), "entrar")
-        # la de debajo se esconde: es color, no medida, así que nada se mueve
-        gestor.addTemporaryAttributes_forCharacterRange_({"NSColor": NSColor.clearColor()}, rango)
-        self.capa, self.capa_rango = capa, rango
-
-    @objc.python_method
-    def soltarCapa(self):
-        """La palabra anterior vuelve a su sitio y su dibujo se desvanece encima."""
-        if self.capa_rango is not None:
-            self.texto.layoutManager().removeTemporaryAttribute_forCharacterRange_(
-                "NSColor", self.capa_rango)
-            self.capa_rango = None
-        capa, self.capa = self.capa, None
-        if capa is None:
-            return
-        capa.removeAllAnimations()
-        capa.setOpacity_(0.0)
-        capa.addAnimation_forKey_(ui.suave("opacity", 1.0, 0.0, SALIDA), "salir")
-        self.capas.append(capa)
-        self.performSelector_withObject_afterDelay_(b"limpiarCapas:", None, SALIDA + 0.05)
-
-    def limpiarCapas_(self, _):
-        for vieja in list(self.capas):
-            if vieja is not self.capa:
-                vieja.removeFromSuperlayer()
-                self.capas.remove(vieja)
+        almacen = self.texto.textStorage()
+        almacen.beginEditing()
+        for rango in list(self.pintadas):
+            if deseado.get(rango) != self.pintadas[rango]:
+                almacen.removeAttribute_range_(GROSOR, NSMakeRange(*rango))
+                almacen.removeAttribute_range_(TRAZO, NSMakeRange(*rango))
+                del self.pintadas[rango]
+        for rango, grosor in deseado.items():
+            if rango in self.pintadas:
+                continue
+            almacen.addAttributes_range_({GROSOR: grosor, TRAZO: NSColor.labelColor()},
+                                         NSMakeRange(*rango))
+            self.pintadas[rango] = grosor
+        almacen.endEditing()
 
     @objc.python_method
     def resaltarFondo(self, segundo):
@@ -1227,14 +1209,16 @@ class Editor(NSObject):
     @objc.python_method
     def apagarResaltado(self):
         """Quita cualquier marca: al cerrar, al recargar o al cambiar de ajuste."""
-        todo = NSMakeRange(0, self.texto.textStorage().length())
+        almacen = self.texto.textStorage()
+        todo = NSMakeRange(0, almacen.length())
+        almacen.beginEditing()
+        almacen.removeAttribute_range_(GROSOR, todo)
+        almacen.removeAttribute_range_(TRAZO, todo)
+        almacen.endEditing()
         gestor = self.texto.layoutManager()
         gestor.removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, todo)
         gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", todo)
-        self.capa_rango = None
-        self.soltarCapa()
-        self.limpiarCapas_(None)
-        self.pintadas, self.apagado = {}, None
+        self.pintadas = {}
         self.pastilla = self.destino = None
         self.resaltada = None
         self.texto.setNeedsDisplay_(True)
