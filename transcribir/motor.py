@@ -28,7 +28,7 @@ class Trabajo:
     origen: Path
     opciones: dict            # idioma, precision, vocabulario, formato, destino
     cliente: str | None = None  # "Claude Code", "Carpeta vigilada"…; None si lo agregó el usuario
-    tarea: str = "transcribir"  # o "tiempos": calcular el resaltado de una ficha ya hecha
+    tarea: str = "transcribir"  # o "tiempos"/"personas": rehacer algo de una ficha ya hecha
 
 
 def ruta_libre(carpeta: Path, nombre: str, extension: str = ".txt") -> Path:
@@ -147,11 +147,12 @@ class Motor(threading.Thread):
         self._revisar(t.id)
         return resultado, muestras, duracion
 
-    def _tiempos(self, t: Trabajo) -> None:
-        """Calcula el resaltado de una transcripción que ya existe, sin tocar su texto.
+    def _rehacer(self, t: Trabajo) -> None:
+        """Vuelve sobre una transcripción ya hecha: calcula sus tiempos y, si se
+        pide, separa por persona y reescribe el archivo con quién habla.
 
-        Vuelve a escuchar el audio para saber cuándo suena cada palabra, pero las
-        palabras son las del archivo: si lo corregiste en el editor, se respeta.
+        Escucha otra vez el audio, pero las palabras son las del archivo: si lo
+        corregiste en el editor, se respeta lo que escribiste.
         """
         ficha = biblioteca.leer(t.opciones["ficha"])
         if ficha is None:
@@ -161,19 +162,40 @@ class Motor(threading.Thread):
             raise RuntimeError("No se encontró la transcripción")
         nombres = list((ficha.get("personas") or {}).values())
 
-        resultado, _, _ = self._escuchar(t, con_tiempos=True)
+        resultado, muestras, _ = self._escuchar(t, con_tiempos=True)
         palabras = formatos.palabras_con_tiempo(formatos.limpiar(contenido, nombres),
                                                 resultado.segments or [])
         if not palabras:
             raise RuntimeError("No se pudieron calcular los tiempos de las palabras")
-        biblioteca.guardar_palabras(ficha["id"], palabras)
+
+        personas = None
+        if t.tarea == "personas":
+            segmentacion = self._modelo(t, "segmentacion")
+            voces = self._modelo(t, "voces")
+            self._despachar(self._al_progreso, t.id, "Separando por persona…", -1.0)
+            turnos = interlocutores.turnos(
+                muestras, segmentacion, voces, lambda: self._revisar(t.id),
+                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f))
+            personas = formatos.asignar_personas(palabras, turnos)
+            if ficha.get("formato") == "srt":
+                nuevo = formatos.a_srt(palabras, personas)
+            else:
+                nuevo = formatos.con_personas(palabras, personas,
+                                              ficha.get("formato") == "tiempos")
+            biblioteca.escribir_texto(ficha, nuevo)
+            ficha["cuantas_personas"] = len(set(personas))
+            ficha.setdefault("ajustes", {})["personas"] = True
+            ficha["personas"] = {}
+            biblioteca.guardar(ficha)
+
+        biblioteca.guardar_palabras(ficha["id"], palabras, personas)
         self._despachar(self._al_terminar, t.id, str(biblioteca.ubicar(ficha)),
                         ficha.get("duracion", 0.0), 0.0, ficha["id"])
 
     def _procesar(self, t: Trabajo) -> None:
         self._revisar(t.id)
-        if t.tarea == "tiempos":
-            return self._tiempos(t)
+        if t.tarea in ("tiempos", "personas"):
+            return self._rehacer(t)
         op = t.opciones
         por_persona = bool(op.get("personas"))
         con_tiempos = op["formato"] in ("tiempos", "srt") or por_persona or bool(op.get("tiempos"))

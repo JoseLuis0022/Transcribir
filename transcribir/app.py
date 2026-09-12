@@ -881,7 +881,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         else:
             self.pintarCola()
         self.pintar()
-        if item.get("tarea") == "tiempos":
+        if item.get("tarea") in ("tiempos", "personas"):
             editor = self.editores.get(item.get("ficha"))
             if editor is not None:
                 editor.avanceTiempos(fraccion, texto)
@@ -905,7 +905,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 editor.recargar(ficha)
             if self.ventana_historial is not None:
                 self.ventana_historial.pintar()
-        if item.get("tarea") == "tiempos":      # solo se calculó el resaltado: nada que anunciar
+        if item.get("tarea") in ("tiempos", "personas"):   # nada que anunciar: no es un archivo nuevo
             self.alCambiarCola()
             return
         self.lote_listos.append((item["ruta"].name, ruta_txt))
@@ -1306,8 +1306,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         return ficha
 
     @objc.python_method
-    def calcularTiempos(self, ficha):
-        """Encola el cálculo del resaltado de una transcripción ya hecha."""
+    def calcularTiempos(self, ficha, tarea="tiempos"):
+        """Encola volver sobre una transcripción ya hecha: sus tiempos, o separarla
+        por persona y reescribir el archivo con quién habla."""
         audio_origen = biblioteca.ubicar(ficha, "origen")
         if audio_origen is None:
             self.alerta("No se encontró el audio",
@@ -1320,9 +1321,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                     "vocabulario": ajustes.get("vocabulario") or "",
                     "formato": "parrafos", "destino": str(audio_origen.parent),
                     "ficha": ficha["id"]}
-        trabajo = Trabajo(next(self.ids), audio_origen, opciones, "Resaltado", tarea="tiempos")
+        quien = "Separando" if tarea == "personas" else "Resaltado"
+        trabajo = Trabajo(next(self.ids), audio_origen, opciones, quien, tarea=tarea)
         self.cola.append({"id": trabajo.id, "ruta": audio_origen, "fraccion": None,
-                          "cliente": "Resaltado", "tarea": "tiempos", "ficha": ficha["id"]})
+                          "cliente": quien, "tarea": tarea, "ficha": ficha["id"]})
         self.motor.encolar(trabajo)
         self.pintarCola()
         self.pintar()

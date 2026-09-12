@@ -480,6 +480,22 @@ class Editor(NSObject):
             caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+            y[0] += 24
+
+        if not quienes and self.tiene_audio:
+            titulo("PERSONAS")
+            self.boton_personas = ui.bezel_button("Separar por persona",
+                                                  NSMakeRect(margen, y[0], util, 24),
+                                                  self, b"separarPersonas:", size=11.5)
+            self.boton_personas.setToolTip_(
+                "Vuelve a escuchar el audio para saber quién habla en cada momento.\n"
+                "Reescribe tu archivo con «Persona 1:», «Persona 2:»…")
+            caja.addSubview_(self.boton_personas)
+            y[0] += 30
+            caja.addSubview_(ui.label("Marca quién habla en cada intervención y reescribe "
+                                      "tu archivo.", 11.0, ui.W_REGULAR,
+                                      NSColor.tertiaryLabelColor(),
+                                      NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
 
     # ------------------------------------------------------------------ texto --
     @objc.python_method
@@ -1277,19 +1293,32 @@ class Editor(NSObject):
         if self.sonando():
             self.reproductor.setRate_(VELOCIDADES[self.veloz][0])
 
+    def separarPersonas_(self, sender):
+        """Sobre una transcripción ya hecha: quién habla en cada intervención."""
+        if self.dueno.calcularTiempos(self.ficha, tarea="personas") is None:
+            return
+        sender.setEnabled_(False)
+        sender.setAttributedTitle_(ui.attributed("Separando…", 12.0, ui.W_REGULAR,
+                                                 NSColor.secondaryLabelColor()))
+        self.ponerAvance(sender, "Volviendo a escuchar el audio…")
+
     def activarResaltado_(self, sender):
         if self.dueno.calcularTiempos(self.ficha) is None:
             return
         sender.setEnabled_(False)
         sender.setAttributedTitle_(ui.attributed("Calculando…", 12.0, ui.W_REGULAR,
                                                  NSColor.secondaryLabelColor()))
-        marco = sender.frame()
+        self.ponerAvance(sender, "Volviendo a escuchar el audio…")
+
+    @objc.python_method
+    def ponerAvance(self, boton, nota):
+        """La barra que va debajo del botón que acaba de pulsarse."""
+        marco = boton.frame()
         self.avance = ui.barra_progreso(
-            NSMakeRect(marco.origin.x, marco.origin.y - 12, marco.size.width, 6), -1.0)
+            NSMakeRect(marco.origin.x, marco.origin.y + 30, marco.size.width, 6), -1.0)
         self.dentro_panel.addSubview_(self.avance)
-        self.nota_avance = ui.label("Volviendo a escuchar el audio…", 11.0, ui.W_REGULAR,
-                                    NSColor.tertiaryLabelColor(),
-                                    NSMakeRect(marco.origin.x, marco.origin.y - 32,
+        self.nota_avance = ui.label(nota, 11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                    NSMakeRect(marco.origin.x, marco.origin.y + 42,
                                                marco.size.width, 16), ui.ALIGN_LEFT)
         self.dentro_panel.addSubview_(self.nota_avance)
 
