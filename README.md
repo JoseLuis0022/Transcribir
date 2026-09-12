@@ -49,19 +49,85 @@ del audio.
 
 - **Cola por arrastrar y soltar**: `.m4a`, `.mp4`, `.mp3`, `.wav` y `.mov`, uno
   tras otro, con progreso y opción de **cancelar** el que está en curso.
-- **Terminados** con **Mostrar en Finder**, y un botón para limpiar la lista sin
-  borrar ningún archivo.
+- **Editor propio**: escucha el audio mientras lees, con la palabra que suena
+  **resaltada como en Apple Music**, corrige lo que haga falta y ponles nombre a
+  quienes hablan. Lo que guardes sobrescribe tu `.txt`.
+- **Historial que no se pierde** (⌘Y), con buscador dentro del texto de todas tus
+  transcripciones.
 - **Tres formatos**: párrafos limpios, párrafos con marcas de tiempo `[mm:ss]` o
   subtítulos `.srt` con tiempos por palabra.
-- **Separar por persona**: marca quién habla —«Persona 1:», «Persona 2:»— en
-  reuniones, entrevistas o llamadas. Se combina con cualquier formato.
+- **Separar por persona**: marca quién habla —«Persona 1:», «Persona 2:»— y, si
+  sabes cuántas son, **se lo puedes decir** y acierta mucho más.
 - **Vocabulario propio**: nombres, siglas y términos que el modelo debe escribir
   bien. Es lo que más mejora la precisión con nombres propios.
-- **Carpeta vigilada**: transcribe sola cada audio o video nuevo que llegue a una
-  carpeta mientras la app está abierta.
+- **Carpeta vigilada**: transcribe sola cada audio o video nuevo. Con un toque
+  puedes vigilar las **Notas de Voz de Apple**: lo que grabas con el iPhone
+  aparece transcrito en el Mac, **con el nombre que le pusiste a la nota**.
+- **En la barra de menús**: un anillo que se llena con el avance, con lo que
+  falta y cuánto queda. Cierra la ventana y sigue trabajando.
+- **Exportar a PDF y a Word**, además del `.txt` de siempre.
 - **Notificaciones** al terminar, con clic para ver el resultado en Finder.
 - **Hecha para agentes**: Claude Code y compañía la usan con un comando, y lo que
   piden **aparece en la ventana con su nombre**.
+
+## 🎬 Cómo se ve
+
+<div align="center">
+
+<img src="docs/ventana.png" width="330" alt="Ventana principal con la cola">
+<img src="docs/editor.png" width="520" alt="Editor con las personas y el resaltado">
+
+</div>
+
+**La ventana** es la cola: arrastras, ves el avance de cada archivo y, debajo, lo
+de esta sesión. Lo que pide un agente aparece con su etiqueta —«Claude Code» en
+la captura—, así que siempre sabes quién encargó qué.
+
+**El editor** (doble clic en cualquier transcripción) reproduce el audio y va
+resaltando la palabra que suena; lo ya dicho se queda iluminado hasta que cambia
+quien habla. Los nombres se editan en el propio texto, cada persona tiene su
+color y ⌘ + clic en una palabra salta a ese momento del audio.
+
+<div align="center">
+
+<img src="docs/historial.png" width="380" alt="Historial con el buscador">
+<img src="docs/barra.png" width="300" alt="Menú de la barra de menús">
+
+</div>
+
+**El historial** (⌘Y) guarda todo lo que has transcrito y busca dentro del texto,
+no solo en los nombres. Se desliza con dos dedos para quitar una entrada, igual
+que en Notas. **La barra de menús** enseña el avance sin tener la ventana
+delante: cerrarla no cierra la app, solo ⌘Q.
+
+## 💡 Para qué la usa la gente
+
+| Caso | Cómo |
+|---|---|
+| **Clases y conferencias** | Grabas con el iPhone, y al abrir el Mac la clase ya está transcrita: vigila las Notas de Voz y respeta el nombre que le pusiste. |
+| **Entrevistas y podcasts** | «Separar por persona», les pones nombre en el editor y exportas a Word con cada intervención y su minuto. |
+| **Reuniones de trabajo** | Arrastras la grabación, y mientras se transcribe cierras la ventana: el avance se ve en la barra de menús. |
+| **Subtítulos** | Formato `.srt` con tiempos por palabra, listo para el editor de video. |
+| **Notas sueltas** | Dictas una nota de voz de camino y aparece en el Escritorio como `.txt`, sin abrir nada. |
+| **Con Claude Code** | «Transcribe los audios de esta carpeta y hazme un resumen»: el agente usa la app, tú ves la cola en la ventana. |
+
+### Un ejemplo con Claude Code
+
+```
+› transcribe la entrevista del Escritorio, sepárala por persona y
+  dime en dos líneas qué pidió el cliente
+
+  Claude Code
+  ⎿ transcribir ~/Desktop/Entrevista.m4a --personas --texto
+  ⎿ Transcribiendo… 100 %
+
+  El cliente pide adelantar la entrega dos semanas y quitar el módulo
+  de informes; a cambio acepta subir el presupuesto un 15 %.
+```
+
+Mientras tanto, en la ventana de Transcribir aparece el archivo con la etiqueta
+**Claude Code**, con su barra de progreso y su botón de cancelar. El texto no
+sale de tu Mac: el agente solo recibe el resultado.
 
 ## 📥 Descargar
 
@@ -139,6 +205,7 @@ etiqueta, para que veas en todo momento qué está haciendo.
 ```sh
 transcribir reunion.m4a --texto          # transcribe, espera e imprime el texto
 transcribir entrevista.m4a --personas    # quién dijo qué
+transcribir junta.m4a --personas --cuantas 3   # …sabiendo cuántos son
 transcribir clase.mp4 --formato srt      # subtítulos
 transcribir *.m4a --no-esperar           # encola y sigue trabajando
 transcribir estado --json                # cola, progreso, terminados y ajustes
@@ -213,6 +280,12 @@ Persona 2: Claro, con gusto. Traigo los números del trimestre pasado y una
 propuesta para reducir los costos de infraestructura.
 ```
 
+**Si sabes cuántas personas hablan, díselo.** Sin esa pista, el agrupador de
+voces decide él cuántas hay y, con audio real —ruido, un micro que se acerca y se
+aleja, dos voces que se pisan—, se pasa de largo: una grabación de dos personas
+puede salir con veinte. Con el número, agrupa en esa cantidad exacta. Se elige en
+Ajustes, en el panel del editor para una grabación concreta, o con `--cuantas 2`.
+
 Usa [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx) con la segmentación de
 **pyannote 3.0** y huellas de voz **WeSpeaker ResNet34**, en ONNX: 33 MB de
 modelos, sin cuentas ni PyTorch. Cada palabra, con su tiempo exacto del
@@ -236,16 +309,25 @@ ese corre en la nube.
 
 ## ⚙️ Ajustes
 
+<img src="docs/ajustes.png" width="320" align="right" alt="Ajustes de Transcribir">
+
 Se abren con **⌘,** o desde el menú **Transcribir → Ajustes…**:
 
 - **Transcripción**: idioma (español, inglés o automático), precisión (1.7B o
   rápida 0.6B) y vocabulario propio.
-- **Resultado**: formato, separar por persona, dónde guardar (una carpeta o junto
-  al archivo original) y qué hacer al terminar (nada, mostrar en Finder o abrir).
-- **Carpeta vigilada**: activarla y elegir la carpeta.
-- **Notificaciones**: al terminar cada archivo, al terminar la cola, si algo
-  falla y con o sin sonido, más el estado del permiso del sistema.
-- **Agentes**: instalar el comando y la Skill, y copiar la guía.
+- **Resultado**: formato, separar por persona —y cuántas son, si lo sabes—,
+  preparar el resaltado, dónde guardar y qué hacer al terminar.
+- **Editor**: tamaño del texto y cómo se marca la palabra que suena.
+- **Historial**: cuántas transcripciones recuerda, y vaciarlo sin borrar ningún
+  archivo.
+- **Carpeta vigilada**: elegir cualquier carpeta, o vigilar de un toque las
+  **Notas de Voz** y las **Notas** de Apple, con el icono de cada app. Al
+  encenderla te dice cuántas grabaciones hay sin transcribir y te deja elegir
+  entre hacerlas todas o solo las nuevas.
+- **Notificaciones** y **Agentes**: instalar el comando y la Skill, y copiar la
+  guía.
+
+<br clear="right">
 
 ## 🔒 Privacidad
 
@@ -282,7 +364,7 @@ MLX, Sherpa-ONNX y el resto del motor —unos 266 MB— y no conoce ninguna ruta
 Mac donde se construyó. Para dejarla lista para enviar:
 
 ```sh
-./scripts/hacer-dmg.sh          # -> dist/Transcribir-1.1.dmg (~51 MB)
+./scripts/hacer-dmg.sh          # -> dist/Transcribir-1.2.dmg (~51 MB)
 ```
 
 La imagen de disco trae la app, un acceso directo a Applications y un
@@ -311,6 +393,8 @@ hay versión para Mac Intel.
 | Modelos | [huggingface_hub](https://github.com/huggingface/huggingface_hub): descarga única, carga siempre por ruta local |
 | Notificaciones | [UserNotifications](https://developer.apple.com/documentation/usernotifications) |
 | Agentes | Socket Unix con JSON por líneas, comando con `argparse` y [Skill de Claude Code](https://code.claude.com/docs/en/skills) |
+| Editor | `NSTextView` con `NSLayoutManager`: atributos temporales para el resaltado, capa propia para los nombres |
+| Exportar | `NSPrintOperation` para el PDF y `NSOfficeOpenXMLTextDocument` para el `.docx`, sin librerías extra |
 | Iconografía | [SF Symbols](https://developer.apple.com/sf-symbols/) para la interfaz; el icono se dibuja por código con [Pillow](https://pillow.readthedocs.io/) y se exporta con `iconutil` |
 | Preferencias | `NSUserDefaults`, con validación propia; el comando las cambia a través de la app |
 | Empaquetado | [py2app](https://py2app.readthedocs.io/) para el bundle autónomo, `codesign` ad-hoc verificado y `hdiutil` para la imagen de disco |
@@ -330,6 +414,13 @@ Transcribir/
 │   ├── app.py             # ventana principal, cola, menús y delegado de la app
 │   ├── bienvenida.py      # primera vez: elegir y descargar el modelo, conectar agentes
 │   ├── ajustes.py         # ventana de Ajustes (⌘,)
+│   ├── editor.py          # editor: reproductor, resaltado, personas y exportar
+│   ├── historial.py       # ventana del historial (⌘Y) con su buscador
+│   ├── biblioteca.py      # catálogo de transcripciones: fichas ligeras junto a tus .txt
+│   ├── estado.py          # el icono de la barra de menús y su menú
+│   ├── exportar.py        # PDF y Word
+│   ├── notasvoz.py        # los nombres de las notas de voz de Apple
+│   ├── carpetas.py        # las carpetas de Apple que merece la pena vigilar
 │   ├── motor.py           # cola en segundo plano y transcripción
 │   ├── audio.py           # lectura de audio y video con AVFoundation
 │   ├── modelos.py         # dónde viven los modelos y cómo se descargan
@@ -383,6 +474,16 @@ cargar y aun así poder descargar, la app pasa siempre la ruta local del modelo
 **AppKit abre como documentos las rutas que recibe en `argv`.** Lanzar la app
 con una carpeta como argumento la encola entera. Las pruebas pasan sus datos por
 variables de entorno.
+
+**Notas de Voz guarda el nombre en `ZENCRYPTEDTITLE`,** que pese a llamarse así
+está en texto plano; `ZCUSTOMLABEL` solo guarda la fecha de la grabación, en
+horario universal. Leyendo el campo equivocado, renombrar una nota no cambiaba
+nada y las notas sin nombre salían con la hora corrida.
+
+**Las carpetas de Apple están protegidas por TCC.** Leer las Notas de Voz
+devuelve «Operation not permitted» hasta que el usuario elige esa carpeta en un
+panel del sistema: eso es lo que concede el permiso, así que la app lo pide ahí
+en vez de fallar en silencio.
 
 **El umbral por defecto de Sherpa (0,5) junta voces distintas.** Calibrado con
 diálogos y monólogos, el rango bueno es 0,30–0,35: la app usa 0,33.

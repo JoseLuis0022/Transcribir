@@ -610,6 +610,7 @@ class Editor(NSObject):
                     11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                     NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT)
                 caja.addSubview_(self.explica_tiempos)
+                y[0] += 26            # el hueco que ocupa, para el apartado siguiente
             else:
                 caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
                                           11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
