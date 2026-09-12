@@ -107,6 +107,8 @@ class ControladorAjustes(NSObject):
             self.filaMenu("Tamaño del texto", "También con ⌘+ y ⌘− en el editor", pref.TAMANO),
             self.filaMenu("Resaltado al reproducir",
                           "Cómo se marca la palabra que suena en el editor", pref.RESALTADO),
+            self.filaMenu("Fuerza del resaltado", "Cuánto se nota la palabra que suena",
+                          pref.FUERZA),
         ])
         y = self.seccion(doc, y, "CARPETA VIGILADA", [
             self.filaInterruptor("Vigilar una carpeta",

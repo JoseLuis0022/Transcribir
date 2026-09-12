@@ -41,7 +41,9 @@ INSPECTOR = "NSToolbarToggleInspectorItem"
 FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
-GRUESO = -8.3                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
+# cuánto engorda el trazo de la palabra dicha; es un porcentaje del tamaño de la
+# letra, así que se ve igual de marcada con el texto grande o pequeño
+GRUESOS = {"suave": -4.0, "media": -6.0, "fuerte": -8.3}
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 
@@ -617,12 +619,22 @@ class Editor(NSObject):
         """Menú Ver: la palabra en negrita (como Apple Music) o un fondo suave."""
         self.apagarResaltado()
         pref.escribir(pref.RESALTADO, "palabra" if sender.tag() == 0 else "fondo")
+        self.pintarPanel()
+
+    def cambiarFuerza_(self, sender):
+        """Menú Ver: cuánto se marca la palabra que suena."""
+        self.apagarResaltado()
+        pref.escribir(pref.FUERZA, ("suave", "media", "fuerte")[sender.tag()])
+        self.pintarPanel()
 
     def validateMenuItem_(self, item):
-        """La palomita del menú marca cuál de los dos resaltados está puesto."""
+        """Las palomitas del menú marcan lo que está puesto ahora."""
         if item.action() == b"cambiarResaltado:":
-            puesto = pref.leer(pref.RESALTADO) == ("palabra" if item.tag() == 0 else "fondo")
-            item.setState_(1 if puesto else 0)
+            item.setState_(1 if pref.leer(pref.RESALTADO) ==
+                           ("palabra" if item.tag() == 0 else "fondo") else 0)
+        elif item.action() == b"cambiarFuerza:":
+            item.setState_(1 if pref.leer(pref.FUERZA) ==
+                           ("suave", "media", "fuerte")[item.tag()] else 0)
         return True
 
     def textoMasGrande_(self, sender):
@@ -1036,6 +1048,7 @@ class Editor(NSObject):
         if i < 0 or t > self.mapa[i][3] + 0.5:
             i = None
         largo_texto = len(self.contenido())
+        grueso = GRUESOS.get(pref.leer(pref.FUERZA), GRUESOS["fuerte"])
         deseado, bloque = {}, None
         if i is not None:
             inicio, fin, desde, hasta = self.mapa[i]
@@ -1050,10 +1063,10 @@ class Editor(NSObject):
                 # Music: la luz no se apaga hasta que acaba quien está hablando
                 dicho = inicio + enteras - bloque.inicio
                 if dicho > 0:
-                    deseado[(bloque.inicio, dicho)] = GRUESO
+                    deseado[(bloque.inicio, dicho)] = grueso
                 if enteras < letras and resto > 0.03:
                     # la letra en la que va la voz entra poco a poco, no de golpe
-                    deseado[(inicio + enteras, 1)] = round(GRUESO * resto, 2)
+                    deseado[(inicio + enteras, 1)] = round(grueso * resto, 2)
                 if self.sonando():
                     self.texto.scrollRangeToVisible_(NSMakeRange(inicio, letras))
         if bloque is not self.bloque_activo:
@@ -1063,7 +1076,7 @@ class Editor(NSObject):
         if self.anterior is not None and 0.04 < queda <= 1.0 \
                 and self.anterior.fin <= largo_texto:
             deseado[(self.anterior.inicio, self.anterior.fin - self.anterior.inicio)] = \
-                round(GRUESO * queda ** 1.8, 2)
+                round(grueso * queda ** 1.8, 2)
         self.resaltada = i
         self.aplicarGrosor(deseado)
 
