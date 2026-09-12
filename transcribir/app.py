@@ -189,9 +189,13 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         app.replyToOpenOrPrint_(0)
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
-        # con trabajo pendiente la app se queda en la barra de menús, trabajando;
-        # cerrar la ventana no puede costar la cola
-        return not self.cola
+        """Cerrar la ventana no cierra la app: sigue en la barra de menús.
+
+        Es lo que hacen Mail o Notas, y aquí hace falta: con la ventana cerrada
+        se sigue transcribiendo la cola y vigilando la carpeta. Para salir, ⌘Q o
+        «Salir» en la barra de menús.
+        """
+        return False
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, visible):
         if not visible:

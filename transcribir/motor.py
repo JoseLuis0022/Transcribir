@@ -1,11 +1,12 @@
 """Motor de transcripción: procesa la cola en segundo plano con Qwen3-ASR."""
 
+import gc
 import threading
 import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 
 import audio
 import biblioteca
@@ -17,6 +18,7 @@ import notasvoz
 IDIOMAS = {"es": "Spanish", "en": "English", "auto": None}
 EXTENSIONES = {".m4a", ".mp4", ".mp3", ".wav", ".mov"}
 REGISTRO = Path.home() / "Library" / "Logs" / "Transcribir.log"
+REPOSO = 300.0             # segundos sin trabajo tras los que se sueltan los modelos
 
 
 class Cancelado(Exception):
@@ -95,7 +97,11 @@ class Motor(threading.Thread):
 
     def run(self) -> None:
         while True:
-            trabajo = self._cola.get()
+            try:
+                trabajo = self._cola.get(timeout=REPOSO)
+            except Empty:
+                self._soltar_modelos()        # nadie llama: que no se quede la memoria ocupada
+                trabajo = self._cola.get()
             if trabajo.id in self._cancelados:
                 continue                      # se quitó antes de empezar
             try:
@@ -106,6 +112,25 @@ class Motor(threading.Thread):
                 with REGISTRO.open("a", encoding="utf-8") as log:
                     log.write(f"\n[{time.ctime()}] {trabajo.origen}\n{traceback.format_exc()}")
                 self._despachar(self._al_fallar, trabajo.id, motivo_legible(e))
+
+    def _soltar_modelos(self) -> None:
+        """Descarga de memoria los modelos tras un rato sin trabajo.
+
+        Cada modelo ocupa gigas y la app puede quedarse abierta en la barra de
+        menús días enteros. Volver a cargarlo cuesta unos segundos, y solo la
+        primera transcripción después del descanso.
+        """
+        if not self._sesiones and self._alineador is None:
+            return
+        self._sesiones.clear()
+        self._alineador = None
+        gc.collect()
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()                  # la memoria que MLX guarda para reutilizar
+        except Exception:
+            pass
 
     def _revisar(self, id_trabajo: int) -> None:
         if id_trabajo in self._cancelados:
