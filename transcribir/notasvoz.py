@@ -7,12 +7,16 @@ transcripción se llame igual que la nota, y para enterarse si luego la renombra
 
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 CARPETA = (Path.home() / "Library" / "Group Containers"
            / "group.com.apple.VoiceMemos.shared" / "Recordings")
 BASE = CARPETA / "CloudRecordings.db"
-SIN_NOMBRE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?$")   # la fecha que pone Apple
+SIN_NOMBRE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):\d{2}Z?$")  # la fecha que pone Apple
+# dónde busca Apple el nombre, de lo más fiel a lo que menos: el título es el que
+# cambia al renombrar; la etiqueta se queda con la fecha de cuando se grabó
+COLUMNAS = ("ZENCRYPTEDTITLE", "ZCUSTOMLABELFORSORTING", "ZCUSTOMLABEL")
 MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic")
 PROHIBIDOS = str.maketrans({"/": "-", ":": ".", "\n": " ", "\r": " "})
 
@@ -30,11 +34,18 @@ def limpio(titulo: str) -> str:
 
 
 def _bonito(etiqueta: str) -> str:
-    """Si la nota no tiene nombre puesto, Apple deja la fecha en ISO: se hace legible."""
-    if not SIN_NOMBRE.match(etiqueta):
+    """Si la nota no tiene nombre puesto, Apple deja la fecha en ISO: se hace legible.
+
+    Esa fecha viene en horario universal, así que se pasa a la hora de aquí: una
+    nota de las dos de la madrugada no puede llamarse «08.13».
+    """
+    marca = SIN_NOMBRE.match(etiqueta)
+    if marca is None:
         return limpio(etiqueta)
-    dia = f"{int(etiqueta[8:10])} {MESES[int(etiqueta[5:7]) - 1]} {etiqueta[0:4]}"
-    return limpio(f"Nota de voz {dia}, {etiqueta[11:13]}.{etiqueta[14:16]}")
+    ano, mes, dia, hora, minuto = (int(g) for g in marca.groups())
+    cuando = datetime(ano, mes, dia, hora, minuto, tzinfo=timezone.utc).astimezone()
+    return limpio(f"Nota de voz {cuando.day} {MESES[cuando.month - 1]} {cuando.year}, "
+                  f"{cuando:%H.%M}")
 
 
 def titulos() -> dict[str, str]:
@@ -44,16 +55,22 @@ def titulos() -> dict[str, str]:
     try:
         con = sqlite3.connect(f"file:{BASE}?mode=ro", uri=True, timeout=1.0)
         try:
+            hay = {fila[1] for fila in con.execute("pragma table_info(ZCLOUDRECORDING)")}
+            columnas = [c for c in COLUMNAS if c in hay]
+            if not columnas:
+                return {}
             filas = con.execute(
-                "select ZPATH, ZCUSTOMLABEL from ZCLOUDRECORDING where ZPATH is not null").fetchall()
+                f"select ZPATH, {', '.join(columnas)} from ZCLOUDRECORDING "
+                "where ZPATH is not null").fetchall()
         finally:
             con.close()
     except sqlite3.Error:
         return {}
     salida = {}
-    for ruta, etiqueta in filas:
-        if etiqueta:
-            salida[Path(str(ruta)).name] = _bonito(str(etiqueta))
+    for fila in filas:
+        nombre = next((str(v).strip() for v in fila[1:] if isinstance(v, str) and v.strip()), "")
+        if nombre:
+            salida[Path(str(fila[0])).name] = _bonito(nombre)
     return salida
 
 
