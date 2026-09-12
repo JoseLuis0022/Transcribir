@@ -12,7 +12,7 @@ from pathlib import Path
 import objc
 from AppKit import (
     NSApplication, NSBackingStoreBuffered, NSBezierPath, NSButton, NSColor, NSCursor, NSFont,
-    NSSavePanel,
+    NSMenu, NSMenuItem, NSMenuToolbarItem, NSSavePanel,
     NSScrollView, NSSearchToolbarItem, NSSlider, NSSplitViewController, NSSplitViewItem,
     NSTextView, NSToolbar, NSToolbarItem, NSView, NSViewController, NSWindow, NSWorkspace,
 )
@@ -356,12 +356,25 @@ class Editor(NSObject):
             self.buscador.setTarget_(self)
             self.buscador.setAction_(b"buscarSiguiente:")
             return item
-        if cual in ("exportar", "finder"):
-            simbolo, titulo, accion, ayuda = {
-                "exportar": ("square.and.arrow.up", "Exportar", b"menuExportar:",
-                             "Exportar a PDF o a Word"),
-                "finder": ("folder", "Finder", b"mostrarEnFinder:", "Mostrar en Finder"),
-            }[cual]
+        if cual == "exportar":
+            # un botón de barra con su propio menú: el sistema lo despliega donde toca
+            item = NSMenuToolbarItem.alloc().initWithItemIdentifier_(cual)
+            item.setLabel_("Exportar")
+            item.setToolTip_("Exportar a PDF o a Word")
+            item.setImage_(ui.sf("square.and.arrow.up", 16.0))
+            menu = NSMenu.alloc().init()
+            for i, titulo in enumerate(("Exportar a PDF…", "Exportar a Word…")):
+                opcion = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                    titulo, b"exportarComo:", "")
+                opcion.setTarget_(self)
+                opcion.setTag_(i)
+                menu.addItem_(opcion)
+            item.setMenu_(menu)
+            item.setShowsIndicator_(False)
+            return item
+        if cual == "finder":
+            simbolo, titulo, accion, ayuda = (
+                "folder", "Finder", b"mostrarEnFinder:", "Mostrar en Finder")
             item = NSToolbarItem.alloc().initWithItemIdentifier_(cual)
             item.setLabel_(titulo)
             item.setToolTip_(ayuda)
@@ -1490,9 +1503,6 @@ class Editor(NSObject):
         if ruta is not None:
             NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_(
                 [NSURL.fileURLWithPath_(str(ruta))])
-
-    def menuExportar_(self, sender):
-        ui.desplegar_menu(sender, ["Exportar a PDF…", "Exportar a Word…"], self, b"exportarComo:")
 
     def exportarComo_(self, sender):
         """Exporta a PDF o a Word, preguntando dónde guardarlo."""

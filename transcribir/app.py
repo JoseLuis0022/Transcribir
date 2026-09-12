@@ -895,6 +895,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             self.historial = [f for f in self.historial if f["id"] != ficha["id"]]
             self.historial.insert(0, ficha)
             if item.get("tarea") != "tiempos":
+                # una sola fila por transcripción: separarla por persona o rehacerla
+                # actualiza la que ya está, no añade otra igual
+                self.hechos = [h for h in self.hechos if h.get("tipo") != "ficha"
+                               or h["ficha"]["id"] != ficha["id"]]
                 self.hechos.insert(0, {"tipo": "ficha", "cuando": time.time(), "ficha": ficha,
                                        "nombre": ficha["nombre"], "cliente": ficha.get("cliente")})
             editor = self.editores.get(ficha["id"])
