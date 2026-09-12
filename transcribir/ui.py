@@ -360,6 +360,10 @@ def pill_button(text, symbol, color, target, action, tag=0, alto=24.0):
     return b
 
 
+def plural(n, uno, varios):
+    return f"{n} {uno if n == 1 else varios}"
+
+
 def submenu_item(title, items):
     """Un elemento de menú que abre otro menú."""
     it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")

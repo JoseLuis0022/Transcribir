@@ -66,7 +66,7 @@ class Historial(NSObject):
         fondo.setAutoresizingMask_(2 | 16)
         self.ventana.setContentView_(fondo)
 
-        barra = ui.material(NSMakeRect(0, H - BUSCADOR, W, BUSCADOR), ui.MATERIAL_BARRA)
+        barra = NSView.alloc().initWithFrame_(NSMakeRect(0, H - BUSCADOR, W, BUSCADOR))
         barra.setAutoresizingMask_(2 | 8)
         fondo.addSubview_(barra)
         barra.addSubview_(ui.hairline(NSMakeRect(0, 0, W, 1)))

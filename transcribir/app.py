@@ -15,7 +15,8 @@ import Quartz  # noqa: E402,F401  (ver ui.py)
 from AppKit import (  # noqa: E402
     NSAlert, NSApplication, NSBackingStoreBuffered, NSColor, NSImage, NSImageView, NSMenu,
     NSMenuItem, NSOpenPanel, NSPasteboardTypeFileURL, NSPasteboardURLReadingFileURLsOnlyKey,
-    NSProgressIndicator, NSScrollView, NSTextField, NSTimer, NSView, NSVisualEffectView,
+    NSPasteboard, NSPasteboardTypeString, NSProgressIndicator, NSScrollView, NSTextField,
+    NSTimer, NSView, NSVisualEffectView,
     NSWindow, NSWorkspace,
 )
 from Foundation import NSURL, NSMakeRect, NSObject  # noqa: E402
@@ -35,6 +36,7 @@ import ui  # noqa: E402
 from ajustes import ControladorAjustes  # noqa: E402
 from bienvenida import Bienvenida  # noqa: E402
 from editor import Editor  # noqa: E402
+from estado import Estado  # noqa: E402
 from historial import Historial  # noqa: E402
 from identidad import COMPILACION, NOMBRE, REPO, VERSION  # noqa: E402
 from motor import EXTENSIONES, Motor, Trabajo, ruta_libre  # noqa: E402
@@ -146,6 +148,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.lote_listos, self.lote_errores = [], 0   # lo terminado desde que se llenó la cola
         self.ventana_ajustes = None
         self.ventana_historial = None
+        self.estado = None
         self.bienvenida = None
         self.glifos = {k: NSImage.alloc().initWithContentsOfFile_(str(recursos.ruta(f"glifo-{k}.png")))
                        for k in ("on", "off")}
@@ -165,6 +168,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.configurarVigia(rebaselinar=False)
         self.reloj_vigia = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             3.0, self, b"revisarCarpeta:", None, True)
+        self.estado = Estado.alloc().initWithDueno_(self)
         # solo la app instalada atiende al comando `transcribir`
         self.servidor = servidor.iniciar(self) if pref.en_app() else None
 
@@ -200,6 +204,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         return 1 if eleccion == 1000 else 0
 
     def applicationWillTerminate_(self, notification):
+        if self.estado is not None:
+            self.estado.quitar()
         if self.cafeina is not None:
             self.cafeina.terminate()
         servidor.detener(self.servidor)
@@ -241,6 +247,16 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             None,
             ui.menu_item("Cerrar", b"performClose:", "w"),
         ])
+        submenu("Edición", [
+            ui.menu_item("Deshacer", b"undo:", "z"),
+            ui.menu_item("Rehacer", b"redo:", "Z", modifiers=CMD | MAYUS),
+            None,
+            ui.menu_item("Cortar", b"cut:", "x"),
+            ui.menu_item("Copiar", b"copy:", "c"),
+            ui.menu_item("Pegar", b"paste:", "v"),
+            ui.menu_item("Eliminar", b"delete:", ""),
+            ui.menu_item("Seleccionar todo", b"selectAll:", "a"),
+        ])
         submenu("Ver", [
             ui.menu_item("Texto más grande", b"textoMasGrande:", "+"),
             ui.menu_item("Texto más pequeño", b"textoMasPequeno:", "-"),
@@ -276,8 +292,15 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             None,
             ui.menu_item("Traer todo al frente", b"arrangeInFront:", ""),
         ])
+        ayuda = submenu("Ayuda", [
+            ui.menu_item("Guía para agentes de IA", b"copiarGuiaAgentes:", "", self),
+            ui.menu_item("Código y novedades en GitHub", b"abrirRepositorio:", "", self),
+            None,
+            ui.menu_item("Acerca de Transcribir", b"acercaDe:", "", self),
+        ])
         app.setMainMenu_(barra)
         app.setWindowsMenu_(ventana)
+        app.setHelpMenu_(ayuda)
 
     # ------------------------------------------------------------- interfaz --
     @objc.python_method
@@ -664,6 +687,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
     @objc.python_method
     def pintar(self):
         """Título, subtítulo y color del disco según lo que esté pasando."""
+        self.pintarEstado()
         activa = next((c for c in self.cola if c["fraccion"] is not None), None)
         listos = sum(1 for h in self.hechos if h["estado"] == "listo")
         errores = sum(1 for h in self.hechos if h["estado"] == "error")
@@ -714,6 +738,18 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.colorear(estado)
         self.titulo.setStringValue_(titulo)
         self.subtitulo.setStringValue_(sub)
+
+    @objc.python_method
+    def pintarEstado(self):
+        """El círculo de la barra de menús, con el avance de todo el lote."""
+        if self.estado is None:
+            return
+        activa = next((c for c in self.cola if c["fraccion"] is not None), None)
+        texto = ""
+        if activa is not None:
+            texto = (activa.get("texto") or "Transcribiendo…").rstrip("…")
+        self.estado.actualizar(len(self.cola), len(self.lote_listos),
+                               activa["fraccion"] if activa else 0.0, texto)
 
     @objc.python_method
     def fraseDestino(self):
@@ -1179,6 +1215,14 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             pref.escribir(pref.CARPETA, panel.URL().path())
             self.alCambiarAjuste(pref.CARPETA)
 
+    def mostrarVentana_(self, sender):
+        self.ventana.makeKeyAndOrderFront_(None)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+
+    def cancelarTodo_(self, sender):
+        for item in list(self.cola):
+            self.cancelarTrabajo(item["id"])
+
     def abrirCarpeta_(self, sender):
         NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(pref.leer(pref.CARPETA)))
 
@@ -1310,6 +1354,16 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                        if e["tipo"] != "ficha" or e["ficha"]["id"] != ficha["id"]]
         self.pintarHechos()
         self.pintar()
+
+    def copiarGuiaAgentes_(self, sender):
+        tablero = NSPasteboard.generalPasteboard()
+        tablero.clearContents()
+        tablero.setString_forType_(agentes.GUIA, NSPasteboardTypeString)
+        self.avisar("Guía para agentes copiada: pégala en el AGENTS.md o CLAUDE.md de tu proyecto.")
+        self.pintar()
+
+    def abrirRepositorio_(self, sender):
+        NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(REPO))
 
     def acercaDe_(self, sender):
         creditos = ui.attributed(
