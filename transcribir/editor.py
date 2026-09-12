@@ -36,7 +36,7 @@ ANCHO_FLEX, ALTO_FLEX = 2, 16
 PEGADO_ARRIBA, PEGADO_ABAJO = 2 | 8, 2 | 32
 FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
-SOLTAR = 0.32                    # lo que tarda la anterior en volver a su grosor
+SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
 GRUESO = -4.0                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
@@ -45,7 +45,7 @@ COLOR_RESALTE = NSColor.systemPurpleColor()
 INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
 JUSTIFICADO = 3
 CABECERA_NOMBRE, CABECERA_HORA, AIRE = 46.0, 26.0, 12.0
-LECTURA = 13.5                   # el cuerpo del texto
+LECTURA = 15.0                   # el cuerpo del texto
 COLUMNA = 620.0                  # ancho máximo de lectura: más largo cansa la vista
 
 
@@ -180,6 +180,7 @@ class Editor(NSObject):
         self.mapa, self.inicios = [], []      # [(inicio, fin, desde, hasta)] por palabra
         self.bloques = []                     # cada intervención: dónde, cuándo y de quién
         self.resaltada, self.cambio = None, 0.0
+        self.bloque_activo, self.anterior = None, None
         self.pintadas = {}                    # qué trozos están marcados ahora
         self.campo_nombre = None
         self.pastilla_oculta = None
@@ -235,7 +236,8 @@ class Editor(NSObject):
         barra.setAutoresizingMask_(PEGADO_ARRIBA)
         fondo.addSubview_(barra)
 
-        ancho_botones = 104.0 + 6 + 128 + 6 + 80
+        lado, hueco = 26.0, 4.0
+        ancho_botones = lado * 3 + hueco * 2
         arriba = alto - TOPE - 22.0
         ancho_texto = W - PAD * 2 - ancho_botones - 16
         barra.addSubview_(ui.label(self.ficha.get("nombre", ""), 15.0, ui.W_SEMIBOLD,
@@ -246,18 +248,15 @@ class Editor(NSObject):
                                 truncate=ui.TRUNC_MIDDLE)
         barra.addSubview_(self.detalle)
 
-        derecha = NSView.alloc().initWithFrame_(
-            NSMakeRect(W - PAD - ancho_botones, arriba - 7, ancho_botones, 28))
+        derecha, botones = ui.barra_iconos(
+            [("square.and.arrow.up", b"menuExportar:", "Exportar a PDF o a Word"),
+             ("folder", b"mostrarEnFinder:", "Mostrar en Finder"),
+             ("arrow.down.circle", b"guardarDocumento:", "Guardar los cambios (⌘S)")],
+            NSMakeRect(W - PAD - ancho_botones, arriba - 4, ancho_botones, lado), self)
         derecha.setAutoresizingMask_(8 | 1)          # pegado a la derecha y arriba
         barra.addSubview_(derecha)
-        derecha.addSubview_(ui.menu_button("Exportar…", ["PDF", "Word (.docx)"],
-                                           NSMakeRect(0, 0, 104, 28), self, b"exportarComo:"))
-        derecha.addSubview_(ui.bezel_button("Mostrar en Finder", NSMakeRect(110, 0, 128, 28),
-                                            self, b"mostrarEnFinder:"))
-        self.boton_guardar = ui.bezel_button("Guardar", NSMakeRect(244, 0, 80, 28),
-                                             self, b"guardarDocumento:")
+        self.boton_exportar, _, self.boton_guardar = botones
         self.boton_guardar.setEnabled_(False)
-        derecha.addSubview_(self.boton_guardar)
 
         if alto_personas:
             self.construirPersonas(barra)
@@ -421,6 +420,7 @@ class Editor(NSObject):
         colores = ui.COLORES_PERSONA
         arranques = [m[0] for m in self.mapa]
         self.bloques, posicion, self.pintadas = [], 0, {}
+        self.bloque_activo, self.anterior = None, None
         almacen = self.texto.textStorage()
         almacen.beginEditing()
         almacen.setAttributes_range_({"NSFont": NSFont.systemFontOfSize_(LECTURA),
@@ -762,31 +762,45 @@ class Editor(NSObject):
         i = bisect_right(self.inicios, t) - 1
         if i < 0 or t > self.mapa[i][3] + 0.5:
             i = None
-        if i != self.resaltada:
-            self.resaltada, self.cambio = i, segundo
-        deseado = {}
+        largo_texto = len(self.contenido())
+        deseado, bloque = {}, None
         if i is not None:
             inicio, fin, desde, hasta = self.mapa[i]
-            if fin <= len(self.contenido()):
+            bloque = self.bloqueDe(inicio)
+            if fin <= largo_texto and bloque is not None:
                 letras = fin - inicio
                 avance = min(max((t - desde) / max(hasta - desde, 0.08), 0.0), 1.0)
                 justo = avance * letras
                 enteras = min(int(justo), letras)
-                if enteras:
-                    deseado[(inicio, enteras)] = GRUESO
                 resto = justo - enteras
+                # lo ya dicho de esta intervención se queda marcado, como en Apple
+                # Music: la luz no se apaga hasta que acaba quien está hablando
+                dicho = inicio + enteras - bloque.inicio
+                if dicho > 0:
+                    deseado[(bloque.inicio, dicho)] = GRUESO
                 if enteras < letras and resto > 0.03:
                     # la letra en la que va la voz entra poco a poco, no de golpe
                     deseado[(inicio + enteras, 1)] = round(GRUESO * resto, 2)
                 if self.sonando():
                     self.texto.scrollRangeToVisible_(NSMakeRange(inicio, letras))
-            if i > 0 and segundo - self.cambio < SOLTAR:
-                # la anterior no se apaga de golpe: se va soltando mientras entra esta
-                queda = (1.0 - (segundo - self.cambio) / SOLTAR) ** 1.8
-                a0, a1, _, _ = self.mapa[i - 1]
-                if a1 <= len(self.contenido()) and queda > 0.04:
-                    deseado[(a0, a1 - a0)] = round(GRUESO * queda, 2)
+        if bloque is not self.bloque_activo:
+            self.anterior, self.bloque_activo, self.cambio = self.bloque_activo, bloque, segundo
+        # al cambiar de intervención, la anterior se va apagando poco a poco
+        queda = 1.0 - (segundo - self.cambio) / SOLTAR_BLOQUE
+        if self.anterior is not None and 0.04 < queda <= 1.0 \
+                and self.anterior.fin <= largo_texto:
+            deseado[(self.anterior.inicio, self.anterior.fin - self.anterior.inicio)] = \
+                round(GRUESO * queda ** 1.8, 2)
+        self.resaltada = i
         self.aplicarGrosor(deseado)
+
+    @objc.python_method
+    def bloqueDe(self, posicion):
+        """La intervención a la que pertenece esa parte del texto."""
+        for bloque in self.bloques:
+            if bloque.inicio <= posicion < bloque.fin:
+                return bloque
+        return None
 
     @objc.python_method
     def aplicarGrosor(self, deseado):
@@ -881,9 +895,12 @@ class Editor(NSObject):
             NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_(
                 [NSURL.fileURLWithPath_(str(ruta))])
 
+    def menuExportar_(self, sender):
+        ui.desplegar_menu(sender, ["Exportar a PDF…", "Exportar a Word…"], self, b"exportarComo:")
+
     def exportarComo_(self, sender):
         """Exporta a PDF o a Word, preguntando dónde guardarlo."""
-        formato = "pdf" if "PDF" in (sender.titleOfSelectedItem() or "") else "word"
+        formato = "pdf" if sender.tag() == 0 else "word"
         if self.sucio and not self.guardar():
             return
         ruta = biblioteca.ubicar(self.ficha)

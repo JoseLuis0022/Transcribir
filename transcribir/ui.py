@@ -11,10 +11,10 @@ import Quartz  # noqa: F401
 warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
 
 from AppKit import (  # noqa: E402
-    NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenuItem, NSMutableParagraphStyle,
-    NSPopUpButton, NSTextField, NSView, NSWorkspace,
+    NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
+    NSMutableParagraphStyle, NSPopUpButton, NSTextField, NSView, NSWorkspace,
 )
-from Foundation import NSAttributedString, NSMakeRect  # noqa: E402
+from Foundation import NSAttributedString, NSMakePoint, NSMakeRect  # noqa: E402
 
 try:  # macOS unifica NSTextAlignment con UIKit: left=0, center=1, right=2
     from AppKit import (NSTextAlignmentCenter as ALIGN_CENTER,
@@ -223,6 +223,37 @@ def menu_button(title, titles, frame, target, action, tag=0):
     p.setAction_(action)
     p.setTag_(tag)
     return p
+
+
+def barra_iconos(simbolos, frame, target, tamano=15.0):
+    """Una fila de botones de solo icono, como las barras de herramientas del sistema.
+
+    `simbolos` es [(símbolo, acción, ayuda), …] de izquierda a derecha; devuelve
+    la vista y la lista de botones, por si hay que activarlos o apagarlos.
+    """
+    lado = frame.size.height
+    hueco = 4.0
+    v = NSView.alloc().initWithFrame_(frame)
+    botones = []
+    for i, (simbolo, accion, ayuda) in enumerate(simbolos):
+        b = symbol_button(simbolo, NSMakeRect(i * (lado + hueco), 0, lado, lado),
+                          target, accion, tooltip=ayuda, size=tamano,
+                          tint=NSColor.secondaryLabelColor())
+        v.addSubview_(b)
+        botones.append(b)
+    return v, botones
+
+
+def desplegar_menu(boton, opciones, target, accion):
+    """Saca un menú justo debajo de un botón de icono."""
+    menu = NSMenu.alloc().init()
+    for i, titulo in enumerate(opciones):
+        it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(titulo, accion, "")
+        it.setTarget_(target)
+        it.setTag_(i)
+        menu.addItem_(it)
+    menu.popUpMenuPositioningItem_atLocation_inView_(
+        None, NSMakePoint(0, boton.frame().size.height + 4), boton)
 
 
 def text_field(frame, placeholder, target, action, tag=0):
