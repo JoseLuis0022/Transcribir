@@ -103,6 +103,10 @@ class ControladorAjustes(NSObject):
             self.filaCarpeta("Carpeta de destino", pref.CARPETA),
             self.filaMenu("Al terminar", "Solo con lo que agregas tú", pref.AL_TERMINAR),
         ])
+        y = self.seccion(doc, y, "EDITOR", [
+            self.filaMenu("Resaltado al reproducir",
+                          "Cómo se marca la palabra que suena", pref.RESALTADO),
+        ])
         y = self.seccion(doc, y, "CARPETA VIGILADA", [
             self.filaInterruptor("Vigilar una carpeta",
                                  "Transcribe sola cada audio o video nuevo mientras la app está abierta",

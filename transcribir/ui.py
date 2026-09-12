@@ -32,8 +32,11 @@ W_REGULAR, W_MEDIUM, W_SEMIBOLD = 0.0, 0.23, 0.3
 TRUNC_TAIL, TRUNC_MIDDLE = 4, 5
 
 CAGradientLayer = objc.lookUpClass("CAGradientLayer")
+CALayer = objc.lookUpClass("CALayer")
+CATextLayer = objc.lookUpClass("CATextLayer")
 CATransaction = objc.lookUpClass("CATransaction")
 CABasicAnimation = objc.lookUpClass("CABasicAnimation")
+CASpringAnimation = objc.lookUpClass("CASpringAnimation")
 CAMediaTimingFunction = objc.lookUpClass("CAMediaTimingFunction")
 
 
@@ -49,6 +52,15 @@ class Decorativa(NSView):
 
     def hitTest_(self, punto):
         return None
+
+
+def colores_persona():
+    """Un color por persona, en el orden en que aparecen. Los mismos en toda la app."""
+    return [NSColor.systemPurpleColor(), NSColor.systemTealColor(), NSColor.systemOrangeColor(),
+            NSColor.systemPinkColor(), NSColor.systemIndigoColor(), NSColor.systemGreenColor()]
+
+
+COLORES_PERSONA = colores_persona()
 
 
 def sf(name, size, weight=W_MEDIUM):
@@ -266,6 +278,50 @@ def menu_item(title, action, key, target=None, modifiers=None):
     if modifiers is not None:
         it.setKeyEquivalentModifierMask_(modifiers)
     return it
+
+
+def escala(factor):
+    """Transformación de escala para una capa."""
+    return Quartz.CGAffineTransformMakeScale(factor, factor)
+
+
+def muelle(key_path, desde, hasta, rigidez=280.0, amortiguacion=20.0):
+    """Muelle, como las animaciones del sistema: acelera y frena sola, sin tirones."""
+    a = CASpringAnimation.animationWithKeyPath_(key_path)
+    a.setMass_(1.0)
+    a.setStiffness_(rigidez)
+    a.setDamping_(amortiguacion)
+    a.setInitialVelocity_(0.0)
+    a.setFromValue_(desde)
+    a.setToValue_(hasta)
+    a.setDuration_(a.settlingDuration())
+    return a
+
+
+def suave(key_path, desde, hasta, seconds, curva="easeOut"):
+    a = CABasicAnimation.animationWithKeyPath_(key_path)
+    a.setFromValue_(desde)
+    a.setToValue_(hasta)
+    a.setDuration_(seconds)
+    a.setTimingFunction_(CAMediaTimingFunction.functionWithName_(curva))
+    return a
+
+
+def con_animaciones(seconds, al_acabar=None):
+    """Bloque de animación: `with con_animaciones(0.2): capa.setOpacity_(0)`."""
+    class _Bloque:
+        def __enter__(self):
+            CATransaction.begin()
+            CATransaction.setAnimationDuration_(seconds)
+            if al_acabar is not None:
+                CATransaction.setCompletionBlock_(al_acabar)
+            return self
+
+        def __exit__(self, *_):
+            CATransaction.commit()
+            return False
+
+    return _Bloque()
 
 
 def pulse(key_path, start, end, seconds):

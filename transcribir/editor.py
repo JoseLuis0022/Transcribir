@@ -5,13 +5,13 @@ Lo que se edita aquí es tu archivo, no una copia: al guardar se sobrescribe el 
 suena se resalta y con ⌘-clic saltas a ese momento del audio.
 """
 
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from pathlib import Path
 
 import objc
 from AppKit import (
-    NSApplication, NSBackingStoreBuffered, NSColor, NSFont, NSSavePanel, NSScrollView,
-    NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
+    NSApplication, NSBackingStoreBuffered, NSColor, NSCursor, NSFont, NSSavePanel,
+    NSScrollView, NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
 )
 from AVFoundation import AVPlayer, AVPlayerItem
 from CoreMedia import CMTimeGetSeconds, CMTimeMakeWithSeconds
@@ -20,6 +20,7 @@ from Foundation import NSURL, NSMakeRange, NSMakeRect, NSObject
 import biblioteca
 import exportar
 import formatos
+import preferencias as pref
 import ui
 
 W, H = 760.0, 680.0
@@ -34,6 +35,15 @@ CMD, OPT = 1 << 20, 1 << 19      # teclas ⌘ y ⌥
 ANCHO_FLEX, ALTO_FLEX = 2, 16
 PEGADO_ARRIBA, PEGADO_ABAJO = 2 | 8, 2 | 32
 FONDO_TEMPORAL = "NSBackgroundColor"
+CRECE = 1.07                     # cuánto crece la palabra que suena
+SALIDA = 0.24                    # lo que tarda en apagarse la anterior
+PLUMA = 10.0                     # difuminado del borde que va descubriendo la palabra
+
+
+COLOR_RESALTE = NSColor.systemPurpleColor()
+INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
+JUSTIFICADO = 3
+CABECERA_NOMBRE, CABECERA_HORA, AIRE = 46.0, 26.0, 12.0
 
 
 def reloj(segundos: float) -> str:
@@ -43,17 +53,104 @@ def reloj(segundos: float) -> str:
     return f"{segundos // 60}:{segundos % 60:02d}"
 
 
+def parrafo(cabecera: float):
+    """Estilo de un párrafo del editor: justificado y con hueco arriba para su cabecera."""
+    p = ui.NSMutableParagraphStyle.alloc().init()
+    p.setLineSpacing_(5.0)
+    p.setParagraphSpacingBefore_(cabecera)
+    p.setAlignment_(JUSTIFICADO)
+    return p
+
+
+class Bloque:
+    """Una intervención: dónde está en el archivo, cuándo suena y quién habla."""
+
+    def __init__(self, inicio, fin, desde, hasta, numero, nombre, color):
+        self.inicio, self.fin = inicio, fin
+        self.desde, self.hasta = desde, hasta
+        self.numero, self.nombre, self.color = numero, nombre, color
+
+    @property
+    def cabecera(self) -> float:
+        if self.nombre:
+            return CABECERA_NOMBRE
+        return CABECERA_HORA if self.desde is not None else AIRE
+
+    @property
+    def cuando(self) -> str:
+        if self.desde is None:
+            return ""
+        if self.hasta is None or self.hasta <= self.desde + 0.6:
+            return reloj(self.desde)
+        return f"{reloj(self.desde)} – {reloj(self.hasta)}"
+
+
 # ------------------------------------------------------------------- el texto --
 class VistaTexto(NSTextView):
     """El texto de la transcripción: se edita como en cualquier editor, y además
-    ⌘-clic en una palabra salta a ese momento y ⌥-espacio reproduce o pausa."""
+    ⌘-clic en una palabra salta a ese momento y ⌥-espacio reproduce o pausa.
+
+    En el margen izquierdo se dibuja la hora de cada intervención, que no está en
+    el archivo: es solo de la ventana, y se puede pulsar para escuchar desde ahí.
+    """
+
+    def drawViewBackgroundInRect_(self, rect):
+        """Encima de cada intervención, quién habla y de qué minuto a qué minuto.
+
+        No está en el archivo: se dibuja aquí, en el hueco que deja el párrafo.
+        """
+        objc.super(VistaTexto, self).drawViewBackgroundInRect_(rect)
+        dueno = getattr(self, "dueno", None)
+        if dueno is None:
+            return
+        arriba, abajo = rect.origin.y, rect.origin.y + rect.size.height
+        for bloque in dueno.bloques:
+            if not bloque.cabecera:
+                continue
+            y = dueno.altoDeBloque(bloque)
+            if y is None or y + bloque.cabecera < arriba or y > abajo:
+                continue
+            ancho = self.bounds().size.width
+            if bloque.nombre and bloque.numero != dueno.editando():
+                ui.attributed(bloque.nombre, 13.5, ui.W_SEMIBOLD, bloque.color,
+                              ui.ALIGN_LEFT).drawInRect_(
+                    NSMakeRect(0, y - bloque.cabecera + 4, ancho, 18))
+            if bloque.cuando:
+                ui.attributed(bloque.cuando, 11.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                              ui.ALIGN_LEFT).drawInRect_(
+                    NSMakeRect(0, y - (23 if bloque.nombre else 19), ancho, 15))
 
     def mouseDown_(self, evento):
+        punto = self.convertPoint_fromView_(evento.locationInWindow(), None)
         if evento.modifierFlags() & CMD and self.dueno.tiene_audio:
-            punto = self.convertPoint_fromView_(evento.locationInWindow(), None)
             self.dueno.saltarACaracter(self.characterIndexForInsertionAtPoint_(punto))
             return
+        bloque, zona = self.dueno.zonaCabecera(punto)
+        if zona == "nombre":                       # el nombre se edita aquí mismo
+            self.dueno.editarNombre(bloque)
+            return
+        if zona == "hora" and self.dueno.tiene_audio:
+            self.dueno.escucharDesde(bloque.desde)
+            return
         objc.super(VistaTexto, self).mouseDown_(evento)
+
+    def resetCursorRects(self):
+        """La mano solo donde se puede pulsar: los nombres y las horas."""
+        objc.super(VistaTexto, self).resetCursorRects()
+        dueno = getattr(self, "dueno", None)
+        if dueno is None:
+            return
+        for bloque in dueno.bloques:
+            y = dueno.altoDeBloque(bloque)
+            if y is None or not bloque.cabecera:
+                continue
+            if bloque.nombre:
+                self.addCursorRect_cursor_(
+                    NSMakeRect(0, y - bloque.cabecera, dueno.anchoNombre(bloque), 20),
+                    NSCursor.pointingHandCursor())
+            if bloque.cuando:
+                self.addCursorRect_cursor_(
+                    NSMakeRect(0, y - 24, 120, 16), NSCursor.pointingHandCursor())
 
     def keyDown_(self, evento):
         if evento.modifierFlags() & OPT and evento.charactersIgnoringModifiers() == " ":
@@ -77,7 +174,9 @@ class Editor(NSObject):
         self.guardado = contenido             # lo que hay ahora mismo en tu archivo
         self.palabras = biblioteca.palabras(ficha["id"]) or []
         self.mapa, self.inicios = [], []      # [(inicio, fin, desde, hasta)] por palabra
-        self.resaltada = None
+        self.bloques = []                     # cada intervención: dónde, cuándo y de quién
+        self.resaltada, self.capa = None, None
+        self.campo_nombre = None
         self.sucio = False
         self.arrastrando = False
         self.reproductor = None
@@ -203,6 +302,7 @@ class Editor(NSObject):
         self.texto = VistaTexto.alloc().initWithFrame_(NSMakeRect(0, 0, ancho, alto))
         self.texto.dueno = self
         self.texto.setDelegate_(self)
+        self.texto.setWantsLayer_(True)          # la palabra que crece va en una capa encima
         self.texto.setAllowsUndo_(True)
         self.texto.setDrawsBackground_(False)
         self.texto.setRichText_(False)
@@ -277,13 +377,10 @@ class Editor(NSObject):
     @objc.python_method
     def cargar(self, contenido):
         """Pone el texto en la ventana con el estilo de lectura y prepara el resaltado."""
-        parrafo = ui.NSMutableParagraphStyle.alloc().init()
-        parrafo.setLineSpacing_(5.0)
-        parrafo.setParagraphSpacing_(10.0)
         self.texto.setTypingAttributes_({
             "NSFont": NSFont.systemFontOfSize_(14.0),
             "NSColor": NSColor.labelColor(),
-            "NSParagraphStyle": parrafo})
+            "NSParagraphStyle": parrafo(0.0)})
         self.texto.setString_(contenido)
         almacen = self.texto.textStorage()
         almacen.setAttributes_range_(self.texto.typingAttributes(),
@@ -303,6 +400,174 @@ class Editor(NSObject):
         nombres = list((self.ficha.get("personas") or {}).values())
         self.mapa = formatos.mapear_tiempos(self.contenido(), self.palabras, nombres) if self.palabras else []
         self.inicios = [m[2] for m in self.mapa]
+        self.rehacerBloques(nombres)
+
+    @objc.python_method
+    def rehacerBloques(self, nombres):
+        """Prepara cada intervención: quién habla, de qué minuto a qué minuto y su texto.
+
+        El archivo dice «Ana: Cuéntame…» en una sola línea. Aquí el «Ana:» se
+        esconde (queda en el archivo, pero sin tamaño) y se dibuja arriba, con su
+        color y su rango de tiempo, como una ficha de conversación.
+        """
+        contenido = self.contenido()
+        colores = ui.COLORES_PERSONA
+        arranques = [m[0] for m in self.mapa]
+        self.bloques, posicion = [], 0
+        almacen = self.texto.textStorage()
+        almacen.beginEditing()
+        almacen.setAttributes_range_({"NSFont": NSFont.systemFontOfSize_(14.0),
+                                      "NSColor": NSColor.labelColor(),
+                                      "NSParagraphStyle": parrafo(0.0)},
+                                     NSMakeRange(0, almacen.length()))
+        for linea in contenido.split("\n"):
+            fin = posicion + len(linea)
+            if not linea.strip():
+                if fin > posicion:              # línea en blanco del archivo: sin altura
+                    almacen.addAttribute_value_range_("NSFont", INVISIBLE,
+                                                      NSMakeRange(posicion, fin - posicion))
+                posicion = fin + 1
+                continue
+
+            i = bisect_left(arranques, posicion)
+            j = bisect_left(arranques, fin) - 1
+            desde = self.mapa[i][2] if i < len(self.mapa) and arranques[i] < fin else None
+            hasta = self.mapa[j][3] if desde is not None and 0 <= j < len(self.mapa) else None
+            largo, numero = self._quien(linea, nombres)
+            bloque = Bloque(posicion, fin, desde, hasta, numero,
+                            linea[:largo].rstrip(": ") if largo else "",
+                            colores[(int(numero) - 1) % len(colores)] if numero
+                            else NSColor.secondaryLabelColor())
+            self.bloques.append(bloque)
+            if largo:                            # el «Ana:» se dibuja arriba, no en la línea
+                almacen.addAttributes_range_({"NSFont": INVISIBLE, "NSColor": NSColor.clearColor()},
+                                             NSMakeRange(posicion, min(largo + 1, fin - posicion)))
+            almacen.addAttribute_value_range_("NSParagraphStyle", parrafo(bloque.cabecera),
+                                              NSMakeRange(posicion, fin - posicion))
+            posicion = fin + 1
+        almacen.endEditing()
+        # TextKit no aplica el hueco superior al primer párrafo: se lo da la vista
+        primera = self.bloques[0].cabecera if self.bloques else AIRE
+        self.texto.setTextContainerInset_((0, primera + 6))
+        self.texto.setNeedsDisplay_(True)
+        self.ventana.invalidateCursorRectsForView_(self.texto)
+
+    @objc.python_method
+    def altoDeBloque(self, bloque):
+        """Dónde empieza a dibujarse el texto de un bloque, en coordenadas de la vista."""
+        gestor, contenedor = self.texto.layoutManager(), self.texto.textContainer()
+        if bloque.inicio >= len(self.contenido()):
+            return None
+        glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(
+            NSMakeRange(bloque.inicio, 1), None)[0]
+        marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, contenedor)
+        return marco.origin.y + self.texto.textContainerOrigin().y
+
+    @objc.python_method
+    def editando(self):
+        """Qué persona se está renombrando ahora mismo (su nombre no se dibuja)."""
+        return self.campo_nombre[1] if self.campo_nombre else None
+
+    @objc.python_method
+    def anchoNombre(self, bloque):
+        return ui.attributed(bloque.nombre, 13.5, ui.W_SEMIBOLD, bloque.color).size().width + 10
+
+    @objc.python_method
+    def zonaCabecera(self, punto):
+        """Qué hay bajo el ratón en la cabecera de una intervención: su nombre o su hora."""
+        for bloque in self.bloques:
+            if not bloque.cabecera:
+                continue
+            y = self.altoDeBloque(bloque)
+            if y is None or not (y - bloque.cabecera <= punto.y <= y - 3):
+                continue
+            if bloque.nombre and punto.y <= y - bloque.cabecera + 20 \
+                    and punto.x <= self.anchoNombre(bloque):
+                return bloque, "nombre"
+            if bloque.desde is not None and punto.x <= 120:
+                return bloque, "hora"
+            return None, None
+        return None, None
+
+    @objc.python_method
+    def escucharDesde(self, segundo):
+        if segundo is None:
+            return
+        self.buscar(segundo)
+        if not self.sonando():
+            self.alternarReproduccion()
+
+    # --------------------------------------------------- nombre en su sitio --
+    @objc.python_method
+    def editarNombre(self, bloque):
+        """Pulsar el nombre lo convierte en un campo, ahí mismo: sin ventanas ni modales."""
+        y = self.altoDeBloque(bloque)
+        if y is None:
+            return
+        self.campoNombre(bloque.numero, bloque.color, self.texto,
+                         NSMakeRect(-3, y - bloque.cabecera, max(self.anchoNombre(bloque) + 40, 160), 22),
+                         13.5)
+
+    @objc.python_method
+    def campoNombre(self, numero, color, vista, marco, tamano):
+        self.cerrarCampoNombre()
+        if not numero:
+            return
+        actual = (self.ficha.get("personas") or {}).get(str(numero), "")
+        campo = ui.text_field(marco, f"Persona {numero}", self, b"guardarNombre:")
+        campo.setFont_(NSFont.systemFontOfSize_weight_(tamano, ui.W_SEMIBOLD))
+        campo.setTextColor_(color)
+        campo.setStringValue_(actual)
+        campo.setDelegate_(self)
+        campo.setToolTip_("Intro para guardarlo en todo el archivo · Esc para dejarlo como estaba")
+        self.campo_nombre = (campo, str(numero))
+        self.texto.setNeedsDisplay_(True)
+        vista.addSubview_(campo)
+        self.ventana.makeFirstResponder_(campo)
+
+    @objc.python_method
+    def cerrarCampoNombre(self):
+        if getattr(self, "campo_nombre", None) is None:
+            return
+        campo, _ = self.campo_nombre
+        self.campo_nombre = None
+        campo.setDelegate_(None)
+        campo.removeFromSuperview()
+        self.texto.setNeedsDisplay_(True)
+        self.ventana.makeFirstResponder_(self.texto)
+
+    def control_textView_doCommandBySelector_(self, control, vista, selector):
+        if selector == "cancelOperation:":
+            self.cerrarCampoNombre()
+            return True
+        return False
+
+    def guardarNombre_(self, sender):
+        if getattr(self, "campo_nombre", None) is None:
+            return
+        _, numero = self.campo_nombre
+        nombre = sender.stringValue().strip()
+        self.cerrarCampoNombre()
+        if numero and nombre != (self.ficha.get("personas") or {}).get(numero, ""):
+            self.renombrarPersonas({numero: nombre})
+
+    @objc.python_method
+    def _quien(self, linea, nombres):
+        """(cuántas letras ocupa «Ana:» al principio, qué número de persona es)."""
+        marca = formatos.MARCA.match(linea)
+        desde = marca.end() if marca else 0
+        resto = linea[desde:]
+        encontrado = formatos.QUIEN.match(resto)
+        if encontrado:
+            return desde + len(encontrado.group().rstrip()), encontrado.group().split()[1].rstrip(":")
+        nombres_ficha = self.ficha.get("personas") or {}
+        for numero, nombre in nombres_ficha.items():
+            if nombre.strip() and resto.startswith(f"{nombre}:"):
+                return desde + len(nombre) + 1, numero
+        for nombre in nombres:
+            if nombre.strip() and resto.startswith(f"{nombre}:"):
+                return desde + len(nombre) + 1, None
+        return 0, None
 
     @objc.python_method
     def pintarDetalle(self):
@@ -464,22 +729,102 @@ class Editor(NSObject):
             i = None
         if i == self.resaltada:
             return
-        gestor = self.texto.layoutManager()
-        if self.resaltada is not None and self.resaltada < len(self.mapa):
-            antes = self.mapa[self.resaltada]
-            gestor.removeTemporaryAttribute_forCharacterRange_(
-                FONDO_TEMPORAL, NSMakeRange(antes[0], antes[1] - antes[0]))
+        self.apagarResaltado()
         self.resaltada = i
         if i is None:
             return
-        inicio, fin, _, _ = self.mapa[i]
+        inicio, fin, desde, hasta = self.mapa[i]
         if fin > len(self.contenido()):
             return
         rango = NSMakeRange(inicio, fin - inicio)
-        gestor.addTemporaryAttributes_forCharacterRange_(
-            {FONDO_TEMPORAL: NSColor.systemPurpleColor().colorWithAlphaComponent_(0.28)}, rango)
+        if pref.leer(pref.RESALTADO) == "fondo":
+            self.texto.layoutManager().addTemporaryAttributes_forCharacterRange_(
+                {FONDO_TEMPORAL: COLOR_RESALTE.colorWithAlphaComponent_(0.28)}, rango)
+        else:
+            dura = max(hasta - desde, 0.12)
+            self.cantarPalabra(rango, max(hasta - segundo, 0.12), (segundo - desde) / dura)
         if self.sonando():
             self.texto.scrollRangeToVisible_(rango)
+
+    @objc.python_method
+    def apagarResaltado(self):
+        """Deja la palabra anterior como estaba, sin cortes: se encoge y se apaga."""
+        if self.resaltada is not None and self.resaltada < len(self.mapa):
+            antes = self.mapa[self.resaltada]
+            rango = NSMakeRange(antes[0], antes[1] - antes[0])
+            gestor = self.texto.layoutManager()
+            gestor.removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, rango)
+            gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", rango)
+        capa = self.capa
+        self.capa = None
+        if capa is None:
+            return
+        capa.removeAllAnimations()
+        with ui.con_animaciones(SALIDA, al_acabar=capa.removeFromSuperlayer):
+            capa.addAnimation_forKey_(ui.suave("opacity", 1.0, 0.0, SALIDA), "apagar")
+            capa.addAnimation_forKey_(ui.suave("transform.scale", CRECE, 1.0, SALIDA), "encoger")
+            capa.setOpacity_(0.0)
+            capa.setAffineTransform_(ui.escala(1.0))
+
+    @objc.python_method
+    def cantarPalabra(self, rango, restante, avance):
+        """La palabra que suena se va tiñendo de izquierda a derecha mientras dura,
+        y crece con un muelle, como las letras de Apple Music.
+
+        Va en una capa encima del texto: así el renglón no se mueve ni una décima,
+        que es lo que pasaría si se cambiara de verdad la letra del párrafo.
+        """
+        gestor, contenedor = self.texto.layoutManager(), self.texto.textContainer()
+        glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
+        marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, contenedor)
+        origen = self.texto.textContainerOrigin()
+        palabra = self.contenido()[rango.location:rango.location + rango.length]
+        if not palabra.strip() or marco.size.width <= 0:
+            return
+
+        escala = self.ventana.backingScaleFactor() or 2.0
+        ancho, alto = marco.size.width + 4, marco.size.height + 2
+        capa = ui.CALayer.layer()
+        capa.setBounds_(NSMakeRect(0, 0, ancho, alto))
+        capa.setPosition_((marco.origin.x + origen.x + marco.size.width / 2,
+                           marco.origin.y + origen.y + marco.size.height / 2))
+        capa.setAnchorPoint_((0.5, 0.5))
+
+        def letras(color, peso):
+            letra = ui.CATextLayer.layer()
+            letra.setContentsScale_(escala)
+            letra.setString_(ui.attributed(palabra, 14.0, peso, color, ui.ALIGN_CENTER))
+            letra.setFrame_(NSMakeRect(0, 0, ancho, alto))
+            return letra
+
+        # debajo, la palabra como estaba; encima, la teñida que se va descubriendo
+        capa.addSublayer_(letras(NSColor.labelColor(), ui.W_REGULAR))
+        cantada = letras(COLOR_RESALTE, ui.W_SEMIBOLD)
+        capa.addSublayer_(cantada)
+
+        # la máscara descubre la palabra según va sonando, con el borde difuminado
+        mascara = ui.CAGradientLayer.layer()
+        mascara.setColors_([NSColor.whiteColor().CGColor(),
+                            NSColor.whiteColor().CGColor(),
+                            NSColor.whiteColor().colorWithAlphaComponent_(0.0).CGColor()])
+        mascara.setLocations_([0.0, 0.78, 1.0])
+        mascara.setStartPoint_((0.0, 0.5))
+        mascara.setEndPoint_((1.0, 0.5))
+        mascara.setAnchorPoint_((0.0, 0.5))
+        mascara.setPosition_((0.0, alto / 2))
+        ancho_inicial = max(ancho * min(max(avance, 0.0), 1.0), 1.0)
+        mascara.setBounds_(NSMakeRect(0, 0, ancho + PLUMA, alto))
+        cantada.setMask_(mascara)
+
+        # el hueco del texto se tapa: lo que se ve es la capa, que sí puede crecer
+        self.texto.layoutManager().addTemporaryAttributes_forCharacterRange_(
+            {"NSColor": NSColor.clearColor()}, rango)
+        self.texto.layer().addSublayer_(capa)
+        capa.addAnimation_forKey_(ui.muelle("transform.scale", 1.0, CRECE), "crecer")
+        mascara.addAnimation_forKey_(
+            ui.suave("bounds.size.width", ancho_inicial, ancho + PLUMA,
+                     max(restante, 0.12), "linear"), "cantar")
+        self.capa = capa
 
     # -------------------------------------------------------------- acciones --
     def reproducir_(self, sender):
@@ -534,15 +879,12 @@ class Editor(NSObject):
 
     # --------------------------------------------------------------- personas --
     def renombrarPersona_(self, sender):
-        numero = str(sender.tag())
-        actual = (self.ficha.get("personas") or {}).get(numero, "")
-        nombre = self.dueno.preguntarTexto(
-            f"¿Quién es la persona {numero}?",
-            "Se cambiará en todo el archivo. Déjalo vacío para volver a «Persona " + numero + "».",
-            actual, f"Persona {numero}")
-        if nombre is None:
-            return
-        self.renombrarPersonas({numero: nombre})
+        marco = sender.frame()
+        self.campoNombre(sender.tag(),
+                         ui.COLORES_PERSONA[(sender.tag() - 1) % len(ui.COLORES_PERSONA)],
+                         self.fila_personas,
+                         NSMakeRect(marco.origin.x, marco.origin.y - 1, max(marco.size.width + 60, 150), 24),
+                         11.5)
 
     @objc.python_method
     def renombrarPersonas(self, nombres):
