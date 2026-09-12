@@ -7,7 +7,7 @@ from AppKit import (
     NSApplication, NSBackingStoreBuffered, NSColor, NSOpenPanel, NSPasteboard,
     NSPasteboardTypeString, NSScrollView, NSSwitch, NSVisualEffectView, NSWindow,
 )
-from Foundation import NSURL, NSMakeRect, NSObject
+from Foundation import NSURL, NSMakeRect, NSNotificationCenter, NSObject
 
 import agentes
 import avisos
@@ -52,6 +52,11 @@ class ControladorAjustes(NSObject):
         self.ventana.makeFirstResponder_(None)     # que no abra con el campo de vocabulario activo
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
+    def alDesplazar_(self, notificacion):
+        """La línea bajo el título solo cuando hay contenido por encima."""
+        arriba = self.scroll.contentView().bounds().origin.y <= 0.5
+        self.linea.setAlphaValue_(0.0 if arriba else 1.0)
+
     def windowDidBecomeKey_(self, notification):
         # al volver de Ajustes del Sistema, el permiso puede haber cambiado
         avisos.consultar(self.pintarPermiso)
@@ -77,7 +82,7 @@ class ControladorAjustes(NSObject):
         fondo.setAutoresizingMask_(2 | 16)
         self.ventana.setContentView_(fondo)
 
-        scroll = NSScrollView.alloc().initWithFrame_(rect)
+        self.scroll = scroll = NSScrollView.alloc().initWithFrame_(rect)
         scroll.setDrawsBackground_(False)
         scroll.setHasVerticalScroller_(True)
         scroll.setAutohidesScrollers_(True)
@@ -85,6 +90,22 @@ class ControladorAjustes(NSObject):
         doc = ui.VistaVolteada.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
         scroll.setDocumentView_(doc)
         fondo.addSubview_(scroll)
+
+        # la barra del título, encima del contenido: al desplazar, lo que pasa por
+        # detrás se difumina en vez de verse nítido sobre el título
+        alto_barra = NSWindow.frameRectForContentRect_styleMask_(
+            rect, ui.STYLE_TITLED).size.height - H
+        barra = ui.material(NSMakeRect(0, H - alto_barra, W, alto_barra), ui.MATERIAL_BARRA)
+        barra.setAutoresizingMask_(2 | 8)
+        self.linea = ui.hairline(NSMakeRect(0, 0, W, 1))
+        self.linea.setAutoresizingMask_(2)
+        self.linea.setAlphaValue_(0.0)          # solo se ve cuando hay algo arriba
+        barra.addSubview_(self.linea)
+        fondo.addSubview_(barra)
+
+        scroll.contentView().setPostsBoundsChangedNotifications_(True)
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            self, b"alDesplazar:", "NSViewBoundsDidChangeNotification", scroll.contentView())
 
         y = 52.0
         y = self.seccion(doc, y, "TRANSCRIPCIÓN", [
