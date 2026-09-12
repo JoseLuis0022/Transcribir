@@ -926,6 +926,7 @@ class Editor(NSObject):
         """La app avisa de que la ficha cambió (por ejemplo, ya tiene tiempos)."""
         self.avance = None
         self.ficha = ficha
+        self.ventana.setTitle_(ficha.get("nombre", "Transcripción"))
         self.palabras = biblioteca.palabras(ficha["id"]) or []
         self.rehacerMapa()
         self.pintarDetalle()

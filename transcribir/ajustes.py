@@ -11,6 +11,7 @@ from Foundation import NSURL, NSMakeRect, NSObject
 
 import agentes
 import avisos
+import carpetas
 import preferencias as pref
 import ui
 
@@ -115,7 +116,7 @@ class ControladorAjustes(NSObject):
             self.filaInterruptor("Vigilar una carpeta",
                                  "Transcribe sola cada audio o video nuevo mientras la app está abierta",
                                  pref.VIGILAR),
-            self.filaCarpeta("Carpeta vigilada", pref.CARPETA_VIGILADA),
+            self.filaCarpeta("Carpeta vigilada", pref.CARPETA_VIGILADA, conocidas=True),
         ])
         y = self.seccion(doc, y, "NOTIFICACIONES", [
             self.filaInterruptor("Al terminar cada archivo", "Un aviso por cada transcripción lista",
@@ -201,7 +202,7 @@ class ControladorAjustes(NSObject):
         return FILA, construir
 
     @objc.python_method
-    def filaCarpeta(self, titulo, clave):
+    def filaCarpeta(self, titulo, clave, conocidas=False):
         def construir(caja, abajo):
             caja.addSubview_(ui.icon_view("folder.fill", NSMakeRect(16, abajo + 15, 20, 20),
                                           NSColor.secondaryLabelColor(), 14.0))
@@ -212,8 +213,9 @@ class ControladorAjustes(NSObject):
                              NSMakeRect(196, abajo + (FILA - 17) / 2, CW - 196 - 16 - 96 - 10, 17),
                              ui.ALIGN_RIGHT, truncate=ui.TRUNC_MIDDLE)
             caja.addSubview_(valor)
+            accion = b"menuCarpeta:" if conocidas else b"elegirCarpeta:"
             caja.addSubview_(ui.bezel_button("Elegir…", NSMakeRect(CW - 16 - 96, abajo + 11, 96, 28),
-                                             self, b"elegirCarpeta:", tag=self.registrar(clave)))
+                                             self, accion, tag=self.registrar(clave)))
             self.controles[clave] = ("carpeta", valor, None)
         return FILA, construir
 
@@ -308,7 +310,8 @@ class ControladorAjustes(NSObject):
                 if control.currentEditor() is None:      # no pisar lo que se está escribiendo
                     control.setStringValue_(valor)
             elif tipo == "carpeta":
-                control.setStringValue_(nombre_carpeta(valor))
+                control.setStringValue_(carpetas.como_se_llama(valor) if valor
+                                        else nombre_carpeta(valor))
                 control.setToolTip_(valor or "")
         # la carpeta de destino no cuenta cuando se guarda junto al original
         junto = pref.leer(pref.GUARDAR) == "junto"
@@ -394,6 +397,24 @@ class ControladorAjustes(NSObject):
                 return
             pref.escribir(pref.CARPETA_VIGILADA, carpeta)
         self.guardar(clave, encender)
+
+    def menuCarpeta_(self, sender):
+        """Las carpetas que suelen interesar, sin tener que ir a buscarlas."""
+        self.conocidas = carpetas.disponibles()
+        opciones = [f"{nombre} — {nota}" for _, nombre, _, _, nota in self.conocidas]
+        ui.desplegar_menu(sender, opciones + ["Otra carpeta…"], self, b"elegirConocida:")
+
+    def elegirConocida_(self, sender):
+        clave = self.claves[-1] if not self.claves else pref.CARPETA_VIGILADA
+        if sender.tag() >= len(self.conocidas):
+            carpeta = self.pedirCarpeta(pref.leer(clave))
+            if carpeta is None:
+                return
+        else:
+            carpeta = str(self.conocidas[sender.tag()][2])
+        self.guardar(clave, carpeta)
+        if not pref.leer(pref.VIGILAR):
+            self.guardar(pref.VIGILAR, True)
 
     def elegirCarpeta_(self, sender):
         clave = self.claves[sender.tag()]

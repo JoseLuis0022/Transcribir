@@ -29,6 +29,7 @@ import exportar  # noqa: E402
 import formatos  # noqa: E402
 from formatos import duracion_corta  # noqa: E402
 import modelos  # noqa: E402
+import notasvoz  # noqa: E402
 import preferencias as pref  # noqa: E402
 import recursos  # noqa: E402
 import servidor  # noqa: E402
@@ -1010,6 +1011,36 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 
     def revisarCarpeta_(self, timer):
         self.vigia.revisar()
+        self.ronda = getattr(self, "ronda", 0) + 1
+        if self.ronda % 10 == 0:              # cada medio minuto basta
+            self.sincronizarNombres()
+
+    @objc.python_method
+    def sincronizarNombres(self):
+        """Si renombras una nota de voz en la app de Apple, su transcripción se
+        renombra igual. El nombre vive en la base de datos de Notas de Voz, no en
+        el archivo, así que hay que ir a preguntárselo."""
+        pendientes = [f for f in self.historial if notasvoz.es_nota_de_voz(f.get("origen") or "")]
+        if not pendientes:
+            return
+        titulos = notasvoz.titulos()
+        if not titulos:
+            return
+        cambiadas = 0
+        for ficha in pendientes:
+            ahora = titulos.get(Path(ficha["origen"]).name)
+            if not ahora or ahora == ficha.get("titulo_origen"):
+                continue
+            if biblioteca.renombrar(ficha, ahora) is not None:
+                cambiadas += 1
+        if cambiadas:
+            self.pintarHechos()
+            if self.ventana_historial is not None:
+                self.ventana_historial.pintar()
+            for ficha in pendientes:
+                editor = self.editores.get(ficha["id"])
+                if editor is not None:
+                    editor.recargar(biblioteca.leer(ficha["id"]) or ficha)
 
     # ------------------------------------------------------------ bienvenida --
     @objc.python_method

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import carpetas
 from motor import EXTENSIONES
 
 SOPORTE = Path.home() / "Library" / "Application Support" / "Transcribir"
@@ -58,10 +59,35 @@ class Vigia:
             self.al_encontrar(listos)
 
     def _medios(self) -> list[Path]:
+        """Los audios y videos de la carpeta. Algunas, como las de Notas, los
+        guardan dentro de subcarpetas con nombres de UUID: ahí hay que entrar."""
         if self.carpeta is None or not self.carpeta.is_dir():
             return []
-        return [p for p in self.carpeta.iterdir()
-                if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in EXTENSIONES]
+        if not carpetas.hay_que_hondear(self.carpeta):
+            return [p for p in self.carpeta.iterdir()
+                    if p.is_file() and not p.name.startswith(".")
+                    and p.suffix.lower() in EXTENSIONES]
+        salida = []
+        for hondura, hijo in self._recorrer(self.carpeta, 0):
+            if hondura and hijo.suffix.lower() in EXTENSIONES:
+                salida.append(hijo)
+        return salida
+
+    def _recorrer(self, carpeta: Path, nivel: int):
+        """Recorre hasta cuatro niveles, que es donde llegan las carpetas de Apple."""
+        if nivel > 4:
+            return
+        try:
+            hijos = list(carpeta.iterdir())
+        except OSError:
+            return
+        for hijo in hijos:
+            if hijo.name.startswith("."):
+                continue
+            if hijo.is_dir():
+                yield from self._recorrer(hijo, nivel + 1)
+            elif hijo.is_file():
+                yield True, hijo
 
     def _guardar(self) -> None:
         SOPORTE.mkdir(parents=True, exist_ok=True)

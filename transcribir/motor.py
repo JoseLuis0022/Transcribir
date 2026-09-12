@@ -12,6 +12,7 @@ import biblioteca
 import formatos
 import interlocutores
 import modelos
+import notasvoz
 
 IDIOMAS = {"es": "Spanish", "en": "English", "auto": None}
 EXTENSIONES = {".m4a", ".mp4", ".mp3", ".wav", ".mov"}
@@ -29,6 +30,24 @@ class Trabajo:
     opciones: dict            # idioma, precision, vocabulario, formato, destino
     cliente: str | None = None  # "Claude Code", "Carpeta vigilada"…; None si lo agregó el usuario
     tarea: str = "transcribir"  # o "tiempos"/"personas": rehacer algo de una ficha ya hecha
+
+
+GENERICOS = {"recording", "audio", "grabacion", "grabación", "nueva grabación", "untitled"}
+
+
+def nombre_de(origen: Path) -> str:
+    """Cómo llamar al resultado: como se llame la nota de voz, si lo es. Los audios
+    de Notas se llaman todos «recording», así que ahí se usa la fecha del archivo."""
+    suyo = notasvoz.titulo(origen)
+    if suyo:
+        return suyo
+    if origen.stem.strip().lower() not in GENERICOS:
+        return origen.stem
+    try:
+        cuando = time.localtime(origen.stat().st_mtime)
+    except OSError:
+        cuando = time.localtime()
+    return time.strftime("Grabación %Y-%m-%d %H.%M", cuando)
 
 
 def ruta_libre(carpeta: Path, nombre: str, extension: str = ".txt") -> Path:
@@ -229,12 +248,13 @@ class Motor(threading.Thread):
 
         carpeta = Path(op["destino"])
         carpeta.mkdir(parents=True, exist_ok=True)
-        destino = ruta_libre(carpeta, t.origen.stem, extension)
+        destino = ruta_libre(carpeta, nombre_de(t.origen), extension)
         destino.write_text(contenido + "\n", encoding="utf-8")
 
         segundos = time.perf_counter() - inicio
         ficha = biblioteca.crear(t.origen, destino, op, duracion, segundos, t.cliente,
-                                 len(set(personas)) if personas else 0)
+                                 len(set(personas)) if personas else 0,
+                                 titulo=notasvoz.titulo(t.origen))
         if palabras:
             biblioteca.guardar_palabras(ficha["id"], palabras, personas)
         self._despachar(self._al_terminar, t.id, str(destino), duracion, segundos, ficha["id"])

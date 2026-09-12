@@ -79,13 +79,14 @@ def _leer(ruta: Path):
 
 
 def crear(origen: Path, salida: Path, opciones: dict, duracion: float, segundos: float,
-          cliente=None, personas: int = 0) -> dict:
+          cliente=None, personas: int = 0, titulo=None) -> dict:
     """Ficha de una transcripción recién terminada, ya guardada en el catálogo."""
     ficha = {
         "esquema": ESQUEMA,
         "id": _id(origen.stem),
         "creado": time.time(),
-        "nombre": origen.name,
+        "nombre": titulo or origen.name,
+        "titulo_origen": titulo,       # cómo se llamaba la nota de voz al transcribirla
         "origen": str(origen),
         "origen_marcador": marcador(origen),
         "salida": str(salida),
@@ -153,6 +154,28 @@ def apuntar(ficha: dict, clave: str, ruta: Path) -> None:
     ficha[clave] = str(ruta)
     ficha[f"{clave}_marcador"] = marcador(ruta)
     guardar(ficha)
+
+
+def renombrar(ficha: dict, titulo: str):
+    """Le pone otro nombre al archivo del usuario, sin moverlo de carpeta."""
+    ruta = ubicar(ficha)
+    if ruta is None:
+        return None
+    destino = ruta.parent / f"{titulo}{ruta.suffix}"
+    if destino != ruta:
+        n = 2
+        while destino.exists():
+            destino = ruta.parent / f"{titulo} ({n}){ruta.suffix}"
+            n += 1
+        try:
+            ruta.rename(destino)
+        except OSError:
+            return None
+        apuntar(ficha, "salida", destino)
+    ficha["nombre"] = titulo
+    ficha["titulo_origen"] = titulo
+    guardar(ficha)
+    return destino
 
 
 def texto(ficha: dict):
