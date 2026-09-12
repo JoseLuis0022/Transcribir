@@ -18,7 +18,7 @@ from AppKit import (
 )
 from AVFoundation import AVPlayer, AVPlayerItem
 from CoreMedia import CMTimeGetSeconds, CMTimeMakeWithSeconds
-from Foundation import NSURL, NSMakeRange, NSMakeRect, NSObject
+from Foundation import NSURL, NSMakeRange, NSMakeRect, NSNotificationCenter, NSObject
 
 import biblioteca
 import exportar
@@ -139,7 +139,9 @@ class Cabeceras(NSView):
         dueno = getattr(texto, "dueno", None) if texto is not None else None
         if dueno is None:
             return
-        arriba, abajo = rect.origin.y, rect.origin.y + rect.size.height
+        visible = self.visibleRect()          # al desplazar se repinta entera
+        arriba = max(rect.origin.y, visible.origin.y)
+        abajo = min(rect.origin.y + rect.size.height, visible.origin.y + visible.size.height)
         izquierda = texto.textContainerOrigin().x
         ancho = self.bounds().size.width - izquierda
         for bloque in dueno.bloques:
@@ -170,6 +172,13 @@ class VistaTexto(NSTextView):
     En el margen izquierdo se dibuja la hora de cada intervención, que no está en
     el archivo: es solo de la ventana, y se puede pulsar para escuchar desde ahí.
     """
+
+    def setFrameSize_(self, tamano):
+        """El texto crece al reajustarse; la capa de las cabeceras, con él."""
+        objc.super(VistaTexto, self).setFrameSize_(tamano)
+        capa = getattr(self, "capa_cabeceras", None)
+        if capa is not None:
+            capa.setFrame_(self.bounds())
 
     def drawViewBackgroundInRect_(self, rect):
         """El rastro del resaltado, por detrás del texto."""
@@ -634,9 +643,17 @@ class Editor(NSObject):
         self.texto.textContainer().setWidthTracksTextView_(True)
         self.texto.textContainer().setContainerSize_((ancho, 1e7))
         self.cabeceras = Cabeceras.alloc().initWithFrame_(self.texto.bounds())
-        self.cabeceras.setAutoresizingMask_(ANCHO_FLEX | ALTO_FLEX)
+        # con lienzo propio: si comparte el del texto, al repintar una franja al
+        # desplazarse se borraba media cabecera y quedaba el nombre cortado
+        self.cabeceras.setWantsLayer_(True)
+        self.texto.capa_cabeceras = self.cabeceras
         self.texto.addSubview_(self.cabeceras)
         scroll.setDocumentView_(self.texto)
+        # al desplazar, el sistema solo repinta la franja nueva y las cabeceras
+        # quedaban cortadas por la mitad: se repintan todas
+        scroll.contentView().setPostsBoundsChangedNotifications_(True)
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            self, b"alDesplazarTexto:", "NSViewBoundsDidChangeNotification", scroll.contentView())
         fondo.addSubview_(scroll)
         return fondo
 
@@ -1086,7 +1103,11 @@ class Editor(NSObject):
     def windowShouldClose_(self, ventana):
         return self.guardar()
 
+    def alDesplazarTexto_(self, notificacion):
+        self.cabeceras.setNeedsDisplay_(True)
+
     def windowWillClose_(self, notificacion):
+        NSNotificationCenter.defaultCenter().removeObserver_(self)
         pref.escribir(pref.PANEL, not self.item_panel.isCollapsed())
         self.soltarAudio()
         self.dueno.alCerrarEditor(self.ficha["id"])
