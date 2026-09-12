@@ -354,6 +354,16 @@ def pill_button(text, symbol, color, target, action, tag=0, alto=24.0):
     return b
 
 
+def submenu_item(title, items):
+    """Un elemento de menú que abre otro menú."""
+    it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+    menu = NSMenu.alloc().initWithTitle_(title)
+    for sub in items:
+        menu.addItem_(sub or NSMenuItem.separatorItem())
+    it.setSubmenu_(menu)
+    return it
+
+
 def menu_item(title, action, key, target=None, modifiers=None, tag=None):
     it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
     if target is not None:

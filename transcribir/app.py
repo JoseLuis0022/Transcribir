@@ -246,8 +246,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             ui.menu_item("Mostrar u ocultar el panel", b"toggleInspector:", "i",
                          modifiers=CMD | OPCION),
             None,
-            ui.menu_item("Resaltar la palabra en negrita", b"cambiarResaltado:", "", tag=0),
-            ui.menu_item("Resaltar con un fondo suave", b"cambiarResaltado:", "", tag=1),
+            ui.submenu_item("Resaltado al reproducir", [
+                ui.menu_item("La palabra en negrita", b"cambiarResaltado:", "", tag=0),
+                ui.menu_item("Un fondo suave", b"cambiarResaltado:", "", tag=1),
+            ]),
         ])
         submenu("Transcripción", [
             ui.menu_item("Reproducir o pausar", b"reproducir:", " ", modifiers=OPCION),

@@ -134,8 +134,9 @@ class VistaTexto(NSTextView):
             # el renglón de la cabecera, encima del párrafo
             alto = y - bloque.tamano - 8
             x = izquierda
-            if bloque.nombre and bloque.numero != dueno.editando():
-                nombre = ui.attributed(bloque.nombre, bloque.tamano, ui.W_SEMIBOLD, bloque.color,
+            escrito = dueno.comoSeLlama(bloque)
+            if escrito and bloque.numero != dueno.editandoEnElTexto():
+                nombre = ui.attributed(escrito, bloque.tamano, ui.W_SEMIBOLD, bloque.color,
                                        ui.ALIGN_LEFT)
                 nombre.drawInRect_(NSMakeRect(x, alto, ancho, bloque.tamano + 5))
                 x += nombre.size().width + 9
@@ -680,8 +681,22 @@ class Editor(NSObject):
 
     @objc.python_method
     def editando(self):
-        """Qué persona se está renombrando ahora mismo (su nombre no se dibuja)."""
+        """Qué persona se está renombrando ahora mismo."""
         return self.campo_nombre[1] if self.campo_nombre else None
+
+    @objc.python_method
+    def editandoEnElTexto(self):
+        """Igual, pero solo si el campo está encima del propio texto: ahí sí estorba."""
+        if self.campo_nombre and self.campo_nombre[0].superview() is self.texto:
+            return self.campo_nombre[1]
+        return None
+
+    @objc.python_method
+    def comoSeLlama(self, bloque):
+        """El nombre que toca dibujar: mientras se escribe, lo que lleve escrito."""
+        if self.campo_nombre and self.campo_nombre[1] == bloque.numero:
+            return self.campo_nombre[0].stringValue().strip() or f"Persona {bloque.numero}"
+        return bloque.nombre
 
     @objc.python_method
     def anchoNombre(self, bloque):
@@ -759,6 +774,8 @@ class Editor(NSObject):
     def controlTextDidChange_(self, notificacion):
         if notificacion.object() is self.buscador:
             self.buscar_en_texto(self.buscador.stringValue())
+        elif self.campo_nombre and notificacion.object() is self.campo_nombre[0]:
+            self.texto.setNeedsDisplay_(True)      # el nombre se ve cambiar en el texto
 
     def control_textView_doCommandBySelector_(self, control, vista, selector):
         if selector != "cancelOperation:":
