@@ -361,6 +361,15 @@ class Editor(NSObject):
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
             y[0] += 22
 
+        def control(etiqueta, vista, alto=22.0):
+            """Una fila del panel con su control a la derecha del mismo eje."""
+            caja.addSubview_(ui.label(etiqueta, 11.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                                      NSMakeRect(margen, y[0] + (alto - 15) / 2 + 1,
+                                                 eje - margen - 8, 15), ui.ALIGN_RIGHT))
+            vista.setFrame_(NSMakeRect(eje - 4, y[0], ancho - eje - margen + 4, alto))
+            caja.addSubview_(vista)
+            y[0] += alto + 6
+
         def dato(etiqueta, valor):
             caja.addSubview_(ui.label(etiqueta, 11.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
                                       NSMakeRect(margen, y[0] + 2, eje - margen - 8, 15),
@@ -413,10 +422,23 @@ class Editor(NSObject):
         if self.ficha.get("cliente"):
             dato("Lo pidió", self.ficha["cliente"])
 
+        titulo("RESALTADO")
+        if self.tiene_audio:
+            tipos = [pref.ETIQUETAS[pref.RESALTADO][c] for c in ("palabra", "fondo")]
+            menu_tipo = ui.popup(NSMakeRect(0, 0, 10, 22), tipos, self, b"elegirResaltado:")
+            menu_tipo.setControlSize_(1)
+            menu_tipo.selectItemAtIndex_(0 if pref.leer(pref.RESALTADO) == "palabra" else 1)
+            control("Marca", menu_tipo)
+
+            fuerzas = [pref.ETIQUETAS[pref.FUERZA][c] for c in ("suave", "media", "fuerte")]
+            menu_fuerza = ui.popup(NSMakeRect(0, 0, 10, 22), fuerzas, self, b"elegirFuerza:")
+            menu_fuerza.setControlSize_(1)
+            menu_fuerza.selectItemAtIndex_(
+                ("suave", "media", "fuerte").index(pref.leer(pref.FUERZA)))
+            control("Fuerza", menu_fuerza)
+            y[0] += 6
+
         if not self.palabras and self.tiene_audio:
-            y[0] += 14
-            caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
-            y[0] += 18
             self.boton_tiempos = ui.bezel_button("Calcular los tiempos",
                                                  NSMakeRect(margen, y[0], util, 24),
                                                  self, b"activarResaltado:", size=11.5)
@@ -425,13 +447,10 @@ class Editor(NSObject):
                 "Tu texto no cambia: se respeta tal como está.")
             caja.addSubview_(self.boton_tiempos)
             y[0] += 30
-            caja.addSubview_(ui.label("Sin ellos no se puede resaltar mientras suena.",
+            caja.addSubview_(ui.label("Esta transcripción no guardó cuándo suena cada palabra.",
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                      NSMakeRect(margen, y[0], util, 26), ui.ALIGN_LEFT))
+                                      NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
         elif self.palabras and self.tiene_audio:
-            y[0] += 14
-            caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
-            y[0] += 18
             caja.addSubview_(ui.label("⌘-clic en una palabra para escucharla desde ahí.",
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
@@ -620,6 +639,14 @@ class Editor(NSObject):
         self.apagarResaltado()
         pref.escribir(pref.RESALTADO, "palabra" if sender.tag() == 0 else "fondo")
         self.pintarPanel()
+
+    def elegirResaltado_(self, sender):
+        self.apagarResaltado()
+        pref.escribir(pref.RESALTADO, ("palabra", "fondo")[sender.indexOfSelectedItem()])
+
+    def elegirFuerza_(self, sender):
+        self.apagarResaltado()
+        pref.escribir(pref.FUERZA, ("suave", "media", "fuerte")[sender.indexOfSelectedItem()])
 
     def cambiarFuerza_(self, sender):
         """Menú Ver: cuánto se marca la palabra que suena."""
