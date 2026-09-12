@@ -10,7 +10,8 @@ from pathlib import Path
 
 import objc
 from AppKit import (
-    NSApplication, NSBackingStoreBuffered, NSButton, NSColor, NSCursor, NSFont, NSSavePanel,
+    NSApplication, NSBackingStoreBuffered, NSBezierPath, NSButton, NSColor, NSCursor, NSFont,
+    NSSavePanel,
     NSScrollView, NSSearchToolbarItem, NSSlider, NSSplitViewController, NSSplitViewItem,
     NSTextView, NSToolbar, NSToolbarItem, NSView, NSViewController, NSWindow, NSWorkspace,
 )
@@ -42,8 +43,8 @@ FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
 # el peso de la letra de la palabra dicha (0 es normal, 0,4 negrita)
-PESOS = {"suave": 0.23, "media": 0.3, "fuerte": 0.4}
-LETRA, INTERLETRA = "NSFont", "NSKern"
+PESOS = {"suave": 0.16, "media": 0.23, "fuerte": 0.3}
+TENUE = 0.45                     # lo que se apaga lo que aún no se ha dicho
 
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
@@ -124,6 +125,11 @@ class VistaTexto(NSTextView):
         dueno = getattr(self, "dueno", None)
         if dueno is None:
             return
+        if dueno.pastilla is not None:
+            x, y, ancho_p, alto_p = dueno.pastilla
+            COLOR_RESALTE.colorWithAlphaComponent_(0.26).setFill()
+            NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(x, y, ancho_p, alto_p), 5.0, 5.0).fill()
         arriba, abajo = rect.origin.y, rect.origin.y + rect.size.height
         for bloque in dueno.bloques:
             if not bloque.cabecera:
@@ -211,7 +217,9 @@ class Editor(NSObject):
         self.oculto = None
         self.filas_persona = {}
         self.encontrado, self.cual = [], -1
-        self.anchos = {}
+        self.apagado = None                   # lo que falta por decir, en gris
+        self.capa, self.capa_rango, self.capas = None, None, []
+        self.pastilla = self.destino = None    # el fondo que se desliza
         self.veloz = 1
         self.ver_panel = bool(pref.leer(pref.PANEL))
         self.sucio = False
@@ -1058,56 +1066,49 @@ class Editor(NSObject):
     # -------------------------------------------------------------- resaltado --
     @objc.python_method
     def resaltar(self, segundo):
-        """Marca la palabra que suena, sin tocar el texto ni el deshacer.
-
-        Se pinta sobre el propio texto (atributos temporales del gestor de
-        composición): nada de capas encima, así que encaja perfecto por definición.
-        La negrita se hace engordando el trazo de la letra, que no cambia el ancho
-        de avance y por eso el renglón no se mueve ni un píxel.
-        """
+        """Marca la palabra que suena, sin tocar el texto ni el deshacer."""
         if not self.mapa:
             return
         if pref.leer(pref.RESALTADO) == "fondo":
             self.resaltarFondo(segundo)
             return
-        # la siguiente empieza a marcarse un pelín antes de que acabe la anterior,
-        # para que una entre mientras la otra sale y no haya saltos
+        # la siguiente entra un pelín antes de que acabe la anterior
         t = segundo + ANTICIPO
         i = bisect_right(self.inicios, t) - 1
-        if i < 0 or t > self.mapa[i][3] + 0.5:
+        if i < 0 or t > self.mapa[i][3] + 0.4:
             i = None
-        largo_texto = len(self.contenido())
-        peso = PESOS.get(pref.leer(pref.FUERZA), PESOS["fuerte"])
-        deseado, bloque = {}, None
+        if i != self.resaltada:
+            self.resaltada = i
+            self.marcarPalabra(i, PESOS.get(pref.leer(pref.FUERZA), PESOS["fuerte"]))
+            if i is not None and self.sonando():
+                inicio, fin, _, _ = self.mapa[i]
+                self.texto.scrollRangeToVisible_(NSMakeRange(inicio, fin - inicio))
+        # lo que falta por decir de esta intervención se apaga un poco
+        falta = None
         if i is not None:
-            inicio, fin, desde, hasta = self.mapa[i]
-            bloque = self.bloqueDe(inicio)
-            if fin <= largo_texto and bloque is not None:
-                letras = fin - inicio
-                avance = min(max((t - desde) / max(hasta - desde, 0.08), 0.0), 1.0)
-                justo = avance * letras
-                enteras = min(int(justo), letras)
-                resto = justo - enteras
-                # lo ya dicho de esta intervención se queda marcado, como en Apple
-                # Music: la luz no se apaga hasta que acaba quien está hablando
-                dicho = inicio + enteras - bloque.texto
-                if dicho > 0:
-                    deseado[(bloque.texto, dicho)] = peso
-                if enteras < letras and resto > 0.03:
-                    # la letra en la que va la voz engorda poco a poco, no de golpe
-                    deseado[(inicio + enteras, 1)] = round(peso * resto, 3)
-                if self.sonando():
-                    self.texto.scrollRangeToVisible_(NSMakeRange(inicio, letras))
-        if bloque is not self.bloque_activo:
-            self.anterior, self.bloque_activo, self.cambio = self.bloque_activo, bloque, segundo
-        # al cambiar de intervención, la anterior se va apagando poco a poco
-        queda = 1.0 - (segundo - self.cambio) / SOLTAR_BLOQUE
-        if self.anterior is not None and 0.04 < queda <= 1.0 \
-                and self.anterior.fin <= largo_texto:
-            deseado[(self.anterior.texto, self.anterior.fin - self.anterior.texto)] = \
-                round(peso * queda ** 1.8, 3)
-        self.resaltada = i
-        self.aplicarGrosor(deseado)
+            bloque = self.bloqueDe(self.mapa[i][0])
+            if bloque is not None and self.mapa[i][1] <= len(self.contenido()) \
+                    and self.mapa[i][1] < bloque.fin:
+                falta = (self.mapa[i][1], bloque.fin - self.mapa[i][1])
+        self.atenuar(falta)
+
+    @objc.python_method
+    def atenuar(self, rango):
+        """Apaga un poco lo que aún no se ha dicho de esta intervención.
+
+        Es color, no letra: no cambia la composición ni un píxel, y es lo que hace
+        que la palabra que suena destaque sin tener que engordar nada.
+        """
+        if rango == self.apagado:
+            return
+        gestor = self.texto.layoutManager()
+        if self.apagado is not None:
+            gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", NSMakeRange(*self.apagado))
+        self.apagado = rango
+        if rango is not None:
+            gestor.addTemporaryAttributes_forCharacterRange_(
+                {"NSColor": NSColor.labelColor().colorWithAlphaComponent_(TENUE)},
+                NSMakeRange(*rango))
 
     @objc.python_method
     def bloqueDe(self, posicion):
@@ -1118,87 +1119,125 @@ class Editor(NSObject):
         return None
 
     @objc.python_method
-    def aplicarGrosor(self, deseado):
-        """Deja puesto justo lo que toca, tocando solo lo que cambió.
+    def marcarPalabra(self, i, peso):
+        """Pinta la palabra en negrita ENCIMA del texto, sin tocarlo.
 
-        Se cambia la letra a una más gruesa de verdad, no un trazo engordado: el
-        trazo ensancha el dibujo sin dar más sitio y acaba comiéndose el hueco
-        entre letras. La negrita sí ocupa un pelín más, así que se compensa con
-        interletraje para que la línea mida exactamente lo mismo y nada se mueva.
+        Cambiar la letra de verdad obliga a apretar las letras entre sí para que
+        la línea siga midiendo lo mismo, y eso se ve: las letras se pegan. Así no:
+        la composición no se entera, y lo que se ve es un dibujo encima.
         """
-        if deseado == self.pintadas:
-            return
-        almacen = self.texto.textStorage()
-        normal = NSFont.systemFontOfSize_(self.lectura)
-        almacen.beginEditing()
-        for rango in list(self.pintadas):
-            if deseado.get(rango) != self.pintadas[rango]:
-                almacen.addAttribute_value_range_(LETRA, normal, NSMakeRange(*rango))
-                almacen.removeAttribute_range_(INTERLETRA, NSMakeRange(*rango))
-                del self.pintadas[rango]
-        for rango, peso in deseado.items():
-            if rango in self.pintadas:
-                continue
-            trozo = self.contenido()[rango[0]:rango[0] + rango[1]]
-            almacen.addAttributes_range_(
-                {LETRA: NSFont.systemFontOfSize_weight_(self.lectura, peso),
-                 INTERLETRA: self.compensar(trozo, peso)}, NSMakeRange(*rango))
-            self.pintadas[rango] = peso
-        almacen.endEditing()
-
-    @objc.python_method
-    def compensar(self, trozo, peso):
-        """Cuánto hay que apretar cada letra para que la negrita mida lo mismo."""
-        if not trozo or peso <= 0:
-            return 0.0
-        clave = (trozo, round(peso, 3), self.lectura)
-        if clave not in self.anchos:
-            de_menos = (ui.ancho(trozo, self.lectura, ui.W_REGULAR)
-                        - ui.ancho(trozo, self.lectura, peso))
-            self.anchos[clave] = de_menos / len(trozo)
-            if len(self.anchos) > 4000:
-                self.anchos.clear()
-        return self.anchos[clave]
-
-    @objc.python_method
-    def resaltarFondo(self, segundo):
-        """La otra forma de marcarla: un fondo suave en toda la palabra."""
-        i = bisect_right(self.inicios, segundo) - 1
-        if i < 0 or segundo > self.mapa[i][3] + 0.6:
-            i = None
-        if i == self.resaltada:
-            return
-        gestor = self.texto.layoutManager()
-        if self.resaltada is not None and self.resaltada < len(self.mapa):
-            antes = self.mapa[self.resaltada]
-            gestor.removeTemporaryAttribute_forCharacterRange_(
-                FONDO_TEMPORAL, NSMakeRange(antes[0], antes[1] - antes[0]))
-        self.resaltada = i
-        if i is None:
+        self.soltarCapa()
+        if i is None or i >= len(self.mapa):
             return
         inicio, fin, _, _ = self.mapa[i]
         if fin > len(self.contenido()):
             return
         rango = NSMakeRange(inicio, fin - inicio)
-        gestor.addTemporaryAttributes_forCharacterRange_(
-            {FONDO_TEMPORAL: COLOR_RESALTE.colorWithAlphaComponent_(0.28)}, rango)
-        if self.sonando():
-            self.texto.scrollRangeToVisible_(rango)
+        palabra = self.contenido()[inicio:fin]
+        if not palabra.strip():
+            return
+        gestor, cont = self.texto.layoutManager(), self.texto.textContainer()
+        glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
+        marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, cont)
+        if marco.size.width <= 0:
+            return
+        origen = self.texto.textContainerOrigin()
+
+        capa = ui.CATextLayer.layer()
+        capa.setContentsScale_(self.ventana.backingScaleFactor() or 2.0)
+        capa.setAlignmentMode_("left")
+        capa.setString_(ui.attributed(palabra, self.lectura, peso, NSColor.labelColor(),
+                                      ui.ALIGN_LEFT))
+        capa.setFrame_(NSMakeRect(marco.origin.x + origen.x,
+                                  marco.origin.y + origen.y + (marco.size.height - self.lectura
+                                                               - 5) / 2,
+                                  marco.size.width + 14, self.lectura + 5))
+        self.texto.layer().addSublayer_(capa)
+        if not ui.poca_animacion():
+            capa.addAnimation_forKey_(ui.suave("opacity", 0.0, 1.0, 0.12), "entrar")
+        # la de debajo se esconde: es color, no medida, así que nada se mueve
+        gestor.addTemporaryAttributes_forCharacterRange_({"NSColor": NSColor.clearColor()}, rango)
+        self.capa, self.capa_rango = capa, rango
+
+    @objc.python_method
+    def soltarCapa(self):
+        """La palabra anterior vuelve a su sitio y su dibujo se desvanece encima."""
+        if self.capa_rango is not None:
+            self.texto.layoutManager().removeTemporaryAttribute_forCharacterRange_(
+                "NSColor", self.capa_rango)
+            self.capa_rango = None
+        capa, self.capa = self.capa, None
+        if capa is None:
+            return
+        capa.removeAllAnimations()
+        capa.setOpacity_(0.0)
+        capa.addAnimation_forKey_(ui.suave("opacity", 1.0, 0.0, SALIDA), "salir")
+        self.capas.append(capa)
+        self.performSelector_withObject_afterDelay_(b"limpiarCapas:", None, SALIDA + 0.05)
+
+    def limpiarCapas_(self, _):
+        for vieja in list(self.capas):
+            if vieja is not self.capa:
+                vieja.removeFromSuperlayer()
+                self.capas.remove(vieja)
+
+    @objc.python_method
+    def resaltarFondo(self, segundo):
+        """La otra forma de marcarla: una pastilla que se desliza de palabra en palabra.
+
+        Se dibuja detrás del texto y se mueve hacia su sitio un poco en cada
+        fotograma, así que no salta de una palabra a otra: viaja.
+        """
+        t = segundo + ANTICIPO
+        i = bisect_right(self.inicios, t) - 1
+        if i < 0 or t > self.mapa[i][3] + 0.4:
+            i = None
+        self.resaltada = i
+        if i is None:
+            self.destino = None
+        else:
+            inicio, fin, _, _ = self.mapa[i]
+            if fin > len(self.contenido()):
+                return
+            rango = NSMakeRange(inicio, fin - inicio)
+            gestor, cont = self.texto.layoutManager(), self.texto.textContainer()
+            glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
+            marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, cont)
+            origen = self.texto.textContainerOrigin()
+            self.destino = (marco.origin.x + origen.x - 4, marco.origin.y + origen.y,
+                            marco.size.width + 8, marco.size.height)
+            if self.sonando():
+                self.texto.scrollRangeToVisible_(rango)
+        self.deslizar()
+
+    @objc.python_method
+    def deslizar(self):
+        """Acerca la pastilla a su sitio; si va lejos, salta (cambió de renglón)."""
+        antes, destino = self.pastilla, self.destino
+        if destino is None:
+            self.pastilla = None
+        elif antes is None or abs(antes[1] - destino[1]) > 2:
+            self.pastilla = destino            # otro renglón: sin arrastrarla por la pantalla
+        else:
+            paso = 0.30
+            self.pastilla = tuple(a + (d - a) * paso for a, d in zip(antes, destino))
+        if self.pastilla != antes:
+            self.texto.setNeedsDisplay_(True)
 
     @objc.python_method
     def apagarResaltado(self):
         """Quita cualquier marca: al cerrar, al recargar o al cambiar de ajuste."""
-        almacen = self.texto.textStorage()
-        todo = NSMakeRange(0, almacen.length())
-        almacen.beginEditing()
-        for rango in self.pintadas:
-            almacen.addAttribute_value_range_(
-                LETRA, NSFont.systemFontOfSize_(self.lectura), NSMakeRange(*rango))
-        almacen.removeAttribute_range_(INTERLETRA, todo)
-        almacen.endEditing()
-        self.texto.layoutManager().removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, todo)
-        self.pintadas = {}
+        todo = NSMakeRange(0, self.texto.textStorage().length())
+        gestor = self.texto.layoutManager()
+        gestor.removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, todo)
+        gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", todo)
+        self.capa_rango = None
+        self.soltarCapa()
+        self.limpiarCapas_(None)
+        self.pintadas, self.apagado = {}, None
+        self.pastilla = self.destino = None
         self.resaltada = None
+        self.texto.setNeedsDisplay_(True)
 
     # -------------------------------------------------------------- acciones --
     def reproducir_(self, sender):
