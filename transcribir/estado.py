@@ -6,7 +6,7 @@ ventana cerrada y seguir viendo el avance desde arriba, como en Sereno.
 
 import objc
 from AppKit import (
-    NSBezierPath, NSColor, NSImage, NSMenu, NSMenuItem, NSStatusBar,
+    NSBezierPath, NSColor, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSView,
     NSVariableStatusItemLength,
 )
 from Foundation import NSMakeRect, NSObject, NSPoint
@@ -69,8 +69,9 @@ class Estado(NSObject):
 
     # ------------------------------------------------------------------ icono --
     @objc.python_method
-    def actualizar(self, en_cola: int, hechos: int, fraccion: float, texto: str):
-        """`fraccion` es lo que lleva el archivo de ahora; -1 si aún no se sabe."""
+    def actualizar(self, en_cola: int, hechos: int, fraccion: float, texto: str, queda=None):
+        """`fraccion` es lo que lleva el archivo de ahora; -1 si aún no se sabe.
+        `queda` son los segundos que faltan, si se pueden estimar."""
         boton = self.item.button()
         if not en_cola:
             if self.pintado != "reposo":
@@ -87,18 +88,50 @@ class Estado(NSObject):
                 boton.setImage_(circulo(avance))
                 boton.setToolTip_(f"Transcribir · {texto or 'trabajando'}")
                 self.pintado = clave
-        self.pintarMenu(en_cola, hechos, texto)
+        self.pintarMenu(en_cola, hechos, texto, fraccion, queda)
 
     # ------------------------------------------------------------------- menú --
     @objc.python_method
-    def pintarMenu(self, en_cola, hechos, texto):
+    def cabecera(self, en_cola, hechos, texto, fraccion, queda):
+        """Lo de arriba del menú: qué se está haciendo, cuánto falta y su barra."""
+        ancho, alto = 268.0, 62.0
+        v = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ancho, alto))
+        if not en_cola:
+            v.addSubview_(ui.label("Sin nada en cola", 13.0, ui.W_MEDIUM,
+                                   NSColor.secondaryLabelColor(),
+                                   NSMakeRect(14, (alto - 18) / 2, ancho - 28, 18), ui.ALIGN_LEFT))
+            return v
+
+        total = en_cola + hechos
+        hecho = f"{hechos + 1} de {total}" if total > 1 else ""
+        derecha = []
+        if fraccion is not None and fraccion >= 0:
+            derecha.append(f"{round(fraccion * 100)} %")
+        if queda:
+            derecha.append(f"quedan {queda}")
+        elif hecho:
+            derecha.append(hecho)
+        aparte = " · ".join(derecha)
+        suyo = ui.attributed(aparte, 11.0, ui.W_REGULAR, NSColor.secondaryLabelColor()).size().width
+
+        v.addSubview_(ui.label(texto or "Transcribiendo", 13.0, ui.W_SEMIBOLD, NSColor.labelColor(),
+                               NSMakeRect(14, alto - 24, ancho - 28 - suyo - 12, 18),
+                               ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL))
+        v.addSubview_(ui.label(aparte, 11.0, ui.W_REGULAR, NSColor.secondaryLabelColor(),
+                               NSMakeRect(ancho - 14 - suyo - 4, alto - 23, suyo + 4, 16),
+                               ui.ALIGN_RIGHT))
+        v.addSubview_(ui.barra_progreso(NSMakeRect(14, alto - 40, ancho - 28, 6), fraccion))
+        if hecho and queda:
+            v.addSubview_(ui.label(hecho, 11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                   NSMakeRect(14, 8, ancho - 28, 14), ui.ALIGN_LEFT))
+        return v
+
+    @objc.python_method
+    def pintarMenu(self, en_cola, hechos, texto, fraccion=0.0, queda=None):
         self.menu.removeAllItems()
-        if en_cola:
-            titulo = f"{texto or 'Transcribiendo'} · queda {ui.plural(en_cola, 'archivo', 'archivos')}"
-        else:
-            titulo = "Sin nada en cola"
-        cabecera = ui.menu_item(titulo, None, "")
+        cabecera = ui.menu_item("", None, "")
         cabecera.setEnabled_(False)
+        cabecera.setView_(self.cabecera(en_cola, hechos, texto, fraccion, queda))
         self.menu.addItem_(cabecera)
         self.menu.addItem_(NSMenuItem.separatorItem())
 

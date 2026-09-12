@@ -745,11 +745,24 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         if self.estado is None:
             return
         activa = next((c for c in self.cola if c["fraccion"] is not None), None)
-        texto = ""
+        texto, queda = "", None
         if activa is not None:
             texto = (activa.get("texto") or "Transcribiendo…").rstrip("…")
+            queda = self.cuantoFalta(activa)
         self.estado.actualizar(len(self.cola), len(self.lote_listos),
-                               activa["fraccion"] if activa else 0.0, texto)
+                               activa["fraccion"] if activa else 0.0, texto, queda)
+
+    @objc.python_method
+    def cuantoFalta(self, item):
+        """Lo que falta para este archivo, a partir de lo que ha tardado hasta ahora."""
+        marca, fraccion = item.get("marca"), item.get("fraccion") or 0.0
+        if marca is None or fraccion <= marca[1] + 0.02:
+            return None
+        avanzado = fraccion - marca[1]
+        segundos = (time.time() - marca[0]) * (1.0 - fraccion) / avanzado
+        if segundos < 3 or segundos > 6 * 3600:
+            return None
+        return duracion_corta(segundos)
 
     @objc.python_method
     def fraseDestino(self):
@@ -858,6 +871,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             return
         item["texto"] = texto
         antes, item["fraccion"] = item["fraccion"], fraccion
+        if fraccion >= 0 and item.get("marca") is None:
+            item["marca"] = (time.time(), fraccion)     # desde aquí se estima lo que falta
         fila = self.filas_cola.get(id_trabajo)
         if fila is not None and antes is not None and antes >= 0 and fraccion >= 0:
             barra, pct = fila
@@ -866,6 +881,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         else:
             self.pintarCola()
         self.pintar()
+        if item.get("tarea") == "tiempos":
+            editor = self.editores.get(item.get("ficha"))
+            if editor is not None:
+                editor.avanceTiempos(fraccion, texto)
         self.emitir(id_trabajo, {"evento": "progreso", "archivo": str(item["ruta"]),
                                  "estado": texto, "progreso": fraccion})
 
@@ -1303,7 +1322,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                     "ficha": ficha["id"]}
         trabajo = Trabajo(next(self.ids), audio_origen, opciones, "Resaltado", tarea="tiempos")
         self.cola.append({"id": trabajo.id, "ruta": audio_origen, "fraccion": None,
-                          "cliente": "Resaltado", "tarea": "tiempos"})
+                          "cliente": "Resaltado", "tarea": "tiempos", "ficha": ficha["id"]})
         self.motor.encolar(trabajo)
         self.pintarCola()
         self.pintar()

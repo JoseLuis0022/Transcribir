@@ -12,7 +12,8 @@ warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
 
 from AppKit import (  # noqa: E402
     NSAnimationContext, NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
-    NSMutableParagraphStyle, NSPopUpButton, NSSearchField, NSTextField, NSView,
+    NSMutableParagraphStyle, NSPopUpButton, NSProgressIndicator, NSSearchField, NSTextField,
+    NSView,
     NSVisualEffectView, NSWorkspace,
 )
 from Foundation import NSAttributedString, NSMakePoint, NSMakeRect  # noqa: E402
@@ -209,6 +210,29 @@ def ancho(texto, tamano, peso) -> float:
     """Lo que mide ese texto con esa letra."""
     return NSAttributedString.alloc().initWithString_attributes_(
         texto, {"NSFont": NSFont.systemFontOfSize_weight_(tamano, peso)}).size().width
+
+
+def barra_progreso(frame, fraccion=0.0):
+    """La barra fina del sistema. Con `fraccion` negativa, va y viene sin saber cuánto falta."""
+    b = NSProgressIndicator.alloc().initWithFrame_(frame)
+    b.setStyle_(0)                       # de barra
+    b.setControlSize_(1)                 # pequeña
+    b.setMinValue_(0.0)
+    b.setMaxValue_(100.0)
+    poner_progreso(b, fraccion)
+    return b
+
+
+def poner_progreso(barra, fraccion):
+    if fraccion is None or fraccion < 0:
+        if not barra.isIndeterminate():
+            barra.setIndeterminate_(True)
+            barra.startAnimation_(None)
+    else:
+        if barra.isIndeterminate():
+            barra.stopAnimation_(None)
+            barra.setIndeterminate_(False)
+        barra.setDoubleValue_(min(max(fraccion, 0.0), 1.0) * 100)
 
 
 def bezel_button(title, frame, target, action, tag=0, size=12.0):

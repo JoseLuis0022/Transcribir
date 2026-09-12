@@ -226,6 +226,7 @@ class Editor(NSObject):
         self.pintadas = {}                    # qué trozos están marcados ahora
         self.apagado = None                   # lo que falta por decir, más apagado
         self.pastilla = self.destino = None    # el fondo que se desliza
+        self.avance = None                    # la barra de «calcular los tiempos»
         self.veloz = 1
         self.ver_panel = bool(pref.leer(pref.PANEL))
         self.sucio = False
@@ -912,6 +913,7 @@ class Editor(NSObject):
     @objc.python_method
     def recargar(self, ficha):
         """La app avisa de que la ficha cambió (por ejemplo, ya tiene tiempos)."""
+        self.avance = None
         self.ficha = ficha
         self.palabras = biblioteca.palabras(ficha["id"]) or []
         self.rehacerMapa()
@@ -1276,10 +1278,32 @@ class Editor(NSObject):
             self.reproductor.setRate_(VELOCIDADES[self.veloz][0])
 
     def activarResaltado_(self, sender):
-        if self.dueno.calcularTiempos(self.ficha) is not None:
-            sender.setEnabled_(False)
-            sender.setAttributedTitle_(ui.attributed("Calculando…", 12.0, ui.W_REGULAR,
-                                                     NSColor.secondaryLabelColor()))
+        if self.dueno.calcularTiempos(self.ficha) is None:
+            return
+        sender.setEnabled_(False)
+        sender.setAttributedTitle_(ui.attributed("Calculando…", 12.0, ui.W_REGULAR,
+                                                 NSColor.secondaryLabelColor()))
+        marco = sender.frame()
+        self.avance = ui.barra_progreso(
+            NSMakeRect(marco.origin.x, marco.origin.y - 12, marco.size.width, 6), -1.0)
+        self.dentro_panel.addSubview_(self.avance)
+        self.nota_avance = ui.label("Volviendo a escuchar el audio…", 11.0, ui.W_REGULAR,
+                                    NSColor.tertiaryLabelColor(),
+                                    NSMakeRect(marco.origin.x, marco.origin.y - 32,
+                                               marco.size.width, 16), ui.ALIGN_LEFT)
+        self.dentro_panel.addSubview_(self.nota_avance)
+
+    @objc.python_method
+    def avanceTiempos(self, fraccion, texto):
+        """Lo que va contando la app mientras calcula los tiempos de este archivo."""
+        if getattr(self, "avance", None) is None:
+            return
+        ui.poner_progreso(self.avance, fraccion)
+        if fraccion is not None and fraccion >= 0:
+            self.nota_avance.setStringValue_(f"{(texto or 'Calculando').rstrip('…')} · "
+                                             f"{round(fraccion * 100)} %")
+        else:
+            self.nota_avance.setStringValue_((texto or "Calculando…").rstrip("…") + "…")
 
     def mostrarEnFinder_(self, sender):
         ruta = biblioteca.ubicar(self.ficha)
