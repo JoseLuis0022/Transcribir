@@ -49,6 +49,7 @@ SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención ant
 # letras se acercan demasiado entre sí y cuesta leerlas.
 GRUESOS = {"suave": -3.0, "media": -4.5, "fuerte": -6.0}
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
+TENUE = 0.5                      # lo apagado que queda lo que aún no se ha dicho
 
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
@@ -216,12 +217,14 @@ class Editor(NSObject):
         self.resaltada, self.cambio = None, 0.0
         self.bloque_activo, self.anterior = None, None
         self.pintadas = {}                    # qué trozos están marcados ahora
+        self.apagado = None                   # lo que falta por decir, más apagado
         self.lectura = float(pref.leer(pref.TAMANO))
         self.campo_nombre = None
         self.oculto = None
         self.filas_persona = {}
         self.encontrado, self.cual = [], -1
         self.pintadas = {}                    # qué trozos están marcados ahora
+        self.apagado = None                   # lo que falta por decir, más apagado
         self.pastilla = self.destino = None    # el fondo que se desliza
         self.veloz = 1
         self.ver_panel = bool(pref.leer(pref.PANEL))
@@ -1129,6 +1132,28 @@ class Editor(NSObject):
                 round(grueso * queda ** 1.8, 2)
         self.resaltada = i
         self.aplicarGrosor(deseado)
+        # y lo que aún no se ha dicho de esta intervención se apaga: ahí está la
+        # diferencia de verdad entre lo marcado y lo que no, sin engordar más nada
+        falta = None
+        if i is not None and bloque is not None:
+            hasta_aqui = self.mapa[i][1]
+            if hasta_aqui < bloque.fin <= largo_texto:
+                falta = (hasta_aqui, bloque.fin - hasta_aqui)
+        self.atenuar(falta)
+
+    @objc.python_method
+    def atenuar(self, rango):
+        """Apaga lo que falta por decir. Es color, no letra: no mueve ni un píxel."""
+        if rango == self.apagado:
+            return
+        gestor = self.texto.layoutManager()
+        if self.apagado is not None:
+            gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", NSMakeRange(*self.apagado))
+        self.apagado = rango
+        if rango is not None:
+            gestor.addTemporaryAttributes_forCharacterRange_(
+                {"NSColor": NSColor.labelColor().colorWithAlphaComponent_(TENUE)},
+                NSMakeRange(*rango))
 
     @objc.python_method
     def bloqueDe(self, posicion):
@@ -1190,6 +1215,13 @@ class Editor(NSObject):
                             marco.size.width + 8, marco.size.height)
             if self.sonando():
                 self.texto.scrollRangeToVisible_(rango)
+            bloque = self.bloqueDe(inicio)
+            if bloque is not None and fin < bloque.fin <= len(self.contenido()):
+                self.atenuar((fin, bloque.fin - fin))
+            else:
+                self.atenuar(None)
+        if i is None:
+            self.atenuar(None)
         self.deslizar()
 
     @objc.python_method
@@ -1218,7 +1250,7 @@ class Editor(NSObject):
         gestor = self.texto.layoutManager()
         gestor.removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, todo)
         gestor.removeTemporaryAttribute_forCharacterRange_("NSColor", todo)
-        self.pintadas = {}
+        self.pintadas, self.apagado = {}, None
         self.pastilla = self.destino = None
         self.resaltada = None
         self.texto.setNeedsDisplay_(True)
