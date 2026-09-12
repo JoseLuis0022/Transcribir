@@ -12,6 +12,16 @@ MARCA = re.compile(r"^\[\d+:\d\d(?::\d\d)?\]\s*")
 QUIEN = re.compile(r"^Persona \d+:\s*")
 
 
+def duracion_corta(segundos: float) -> str:
+    """Una duración en pocas letras: «1 h 05 min», «45 min» o «38 s»."""
+    segundos = int(round(segundos))
+    if segundos >= 3600:
+        return f"{segundos // 3600} h {segundos % 3600 // 60:02d} min"
+    if segundos >= 60:
+        return f"{round(segundos / 60)} min"
+    return f"{segundos} s"
+
+
 def tokens(contenido: str, nombres=()) -> list[tuple[str, int, int]]:
     """Las palabras habladas del archivo, cada una con su sitio: (palabra, inicio, fin).
 

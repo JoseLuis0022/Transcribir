@@ -193,6 +193,16 @@ def popup(frame, titles, target, action, tag=0):
     return p
 
 
+def menu_button(title, titles, frame, target, action, tag=0):
+    """Botón con menú desplegable: el título no cambia al elegir (menú de acciones)."""
+    p = NSPopUpButton.alloc().initWithFrame_pullsDown_(frame, True)
+    p.addItemsWithTitles_([title] + list(titles))
+    p.setTarget_(target)
+    p.setAction_(action)
+    p.setTag_(tag)
+    return p
+
+
 def text_field(frame, placeholder, target, action, tag=0):
     """Campo editable; su acción salta al pulsar Intro o al salir del campo."""
     f = NSTextField.alloc().initWithFrame_(frame)

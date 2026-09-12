@@ -24,7 +24,9 @@ from PyObjCTools import AppHelper  # noqa: E402
 import agentes  # noqa: E402
 import avisos  # noqa: E402
 import biblioteca  # noqa: E402
+import exportar  # noqa: E402
 import formatos  # noqa: E402
+from formatos import duracion_corta  # noqa: E402
 import modelos  # noqa: E402
 import preferencias as pref  # noqa: E402
 import recursos  # noqa: E402
@@ -34,7 +36,7 @@ from ajustes import ControladorAjustes  # noqa: E402
 from bienvenida import Bienvenida  # noqa: E402
 from editor import Editor  # noqa: E402
 from identidad import COMPILACION, NOMBRE, REPO, VERSION  # noqa: E402
-from motor import EXTENSIONES, Motor, Trabajo  # noqa: E402
+from motor import EXTENSIONES, Motor, Trabajo, ruta_libre  # noqa: E402
 from vigia import Vigia  # noqa: E402
 
 WIN_W, WIN_H = 440.0, 718.0
@@ -44,6 +46,7 @@ COLA_H, HECHOS_H, PIE_H = 150.0, 170.0, 48.0
 FILA_COLA, FILA_HECHO = 48.0, 50.0
 LISTA_PAD = 8.0            # aire arriba y abajo dentro de las listas
 BOTON = 20.0               # botones de encabezados y filas
+ACCION = 74.0              # botón de texto de una fila: «Abrir», «Ubicar…»
 
 VIDEO = {".mp4", ".mov"}
 VIGILADA = "Carpeta vigilada"
@@ -60,16 +63,6 @@ ESTADOS = {  # (arriba, abajo) del degradado del disco
     "trabajo": (srgb(0.64, 0.54, 1.00), srgb(0.40, 0.29, 0.90)),
     "listo": (srgb(0.42, 0.84, 0.55), srgb(0.17, 0.60, 0.34)),
 }
-
-
-def duracion_corta(segundos: float) -> str:
-    """Para las filas: "1 h 05 min", "45 min" o "38 s"."""
-    segundos = int(round(segundos))
-    if segundos >= 3600:
-        return f"{segundos // 3600} h {segundos % 3600 // 60:02d} min"
-    if segundos >= 60:
-        return f"{round(segundos / 60)} min"
-    return f"{segundos} s"
 
 
 def plural(n: int, uno: str, varios: str) -> str:
@@ -559,35 +552,39 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         """Una transcripción del historial. Si su archivo ya no está, lo dice y ofrece ubicarlo."""
         ruta = biblioteca.ubicar(ficha)
         etiqueta = self.claves_fila.setdefault(ficha["id"], len(self.claves_fila) + 1)
+        # todas las filas con la misma rejilla: botón y, a su derecha, icono en la
+        # misma vertical que los botones del encabezado
+        x_icono = CW - 16 - BOTON
+        x_boton = x_icono - 6 - ACCION
+        ancho = x_boton - 46 - 10
+
         if ruta is None:
             v.addSubview_(ui.icon_view("questionmark.circle.fill", NSMakeRect(16, 15, 20, 20),
                                        NSColor.tertiaryLabelColor(), 15.0))
-            ancho = CW - 46 - 150
             self.nombreConEtiqueta(v, ficha["nombre"], ficha.get("cliente"), ancho)
             v.addSubview_(ui.label("No encontrado · se movió o se borró", 11.0, ui.W_REGULAR,
                                    NSColor.systemOrangeColor(), NSMakeRect(46, 9, ancho, 15),
                                    ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL))
-            v.addSubview_(ui.bezel_button("Ubicar…", NSMakeRect(CW - 16 - 74, 11, 74, 28),
+            v.addSubview_(ui.bezel_button("Ubicar…", NSMakeRect(x_boton, 11, ACCION, 28),
                                           self, b"ubicarArchivo:", tag=etiqueta))
             v.addSubview_(ui.symbol_button(
-                "xmark.circle.fill", NSMakeRect(CW - 16 - 74 - 6 - BOTON, 15, BOTON, BOTON),
+                "xmark.circle.fill", NSMakeRect(x_icono, 15, BOTON, BOTON),
                 self, b"quitarDelHistorial:", tag=etiqueta, size=14.0,
                 tooltip="Quitar del historial", tint=NSColor.tertiaryLabelColor()))
             return
 
         v.addSubview_(ui.icon_view("checkmark.circle.fill", NSMakeRect(16, 15, 20, 20),
                                    NSColor.systemGreenColor(), 15.0))
-        ancho = CW - 46 - 122
         self.nombreConEtiqueta(v, ficha["nombre"], ficha.get("cliente"), ancho)
         v.addSubview_(ui.label(ficha.get("coincidencia") or self.detalleFicha(ficha, ruta),
                                11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                NSMakeRect(46, 9, ancho, 15), ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL))
-        abrir = ui.bezel_button("Abrir", NSMakeRect(CW - 16 - BOTON - 6 - 66, 11, 66, 28),
+        abrir = ui.bezel_button("Abrir", NSMakeRect(x_boton, 11, ACCION, 28),
                                 self, b"abrirEditor:", tag=etiqueta)
         abrir.setToolTip_(f"Ver, escuchar y corregir\n{ruta}")
         v.addSubview_(abrir)
         v.addSubview_(ui.symbol_button(
-            "folder.circle.fill", NSMakeRect(CW - 16 - BOTON, 15, BOTON, BOTON), self,
+            "folder.circle.fill", NSMakeRect(x_icono, 15, BOTON, BOTON), self,
             b"mostrarEnFinder:", tag=etiqueta, size=14.0, tooltip=f"Mostrar en Finder\n{ruta}",
             tint=NSColor.secondaryLabelColor()))
 
@@ -1071,6 +1068,19 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 else:
                     self.renombrarPersonas(ficha, nombres)
             return self.fichaParaAgente(ficha)
+        if accion == "exportar":
+            ficha = self.buscarFicha(peticion.get("ficha"))
+            origen = biblioteca.ubicar(ficha)
+            if origen is None:
+                raise ValueError("No se encontró el archivo de esa transcripción")
+            carpeta = Path(peticion["destino"]) if peticion.get("destino") else origen.parent
+            archivos = []
+            for formato in peticion.get("formatos") or ["pdf"]:
+                if formato not in exportar.FORMATOS:
+                    raise ValueError(f"Formato desconocido: {formato}. Válidos: pdf, word")
+                destino = ruta_libre(carpeta, origen.stem, exportar.FORMATOS[formato])
+                archivos.append(str(exportar.exportar(ficha, formato, destino)))
+            return {"archivos": archivos}
         if accion == "olvidar":
             ficha = self.buscarFicha(peticion.get("ficha"))
             biblioteca.olvidar(ficha["id"])

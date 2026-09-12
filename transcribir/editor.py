@@ -6,17 +6,19 @@ suena se resalta y con ⌘-clic saltas a ese momento del audio.
 """
 
 from bisect import bisect_right
+from pathlib import Path
 
 import objc
 from AppKit import (
-    NSApplication, NSBackingStoreBuffered, NSColor, NSFont, NSSlider, NSTextView,
-    NSScrollView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
+    NSApplication, NSBackingStoreBuffered, NSColor, NSFont, NSSavePanel, NSScrollView,
+    NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
 )
 from AVFoundation import AVPlayer, AVPlayerItem
 from CoreMedia import CMTimeGetSeconds, CMTimeMakeWithSeconds
 from Foundation import NSURL, NSMakeRange, NSMakeRect, NSObject
 
 import biblioteca
+import exportar
 import formatos
 import ui
 
@@ -128,24 +130,29 @@ class Editor(NSObject):
         barra.setAutoresizingMask_(PEGADO_ARRIBA)
         fondo.addSubview_(barra)
 
+        ancho_botones = 104.0 + 6 + 128 + 6 + 80
         arriba = alto - TOPE - 22.0
+        ancho_texto = W - PAD * 2 - ancho_botones - 16
         barra.addSubview_(ui.label(self.ficha.get("nombre", ""), 15.0, ui.W_SEMIBOLD,
-                                   NSColor.labelColor(), NSMakeRect(PAD, arriba, W - PAD * 2 - 230, 20),
+                                   NSColor.labelColor(), NSMakeRect(PAD, arriba, ancho_texto, 20),
                                    ui.ALIGN_LEFT, truncate=ui.TRUNC_MIDDLE))
         self.detalle = ui.label("", 11.5, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                NSMakeRect(PAD, arriba - 19, W - PAD * 2 - 230, 16), ui.ALIGN_LEFT,
+                                NSMakeRect(PAD, arriba - 19, ancho_texto, 16), ui.ALIGN_LEFT,
                                 truncate=ui.TRUNC_MIDDLE)
         barra.addSubview_(self.detalle)
 
-        derecha = NSView.alloc().initWithFrame_(NSMakeRect(W - PAD - 214, arriba - 6, 214, 28))
+        derecha = NSView.alloc().initWithFrame_(
+            NSMakeRect(W - PAD - ancho_botones, arriba - 7, ancho_botones, 28))
         derecha.setAutoresizingMask_(8 | 1)          # pegado a la derecha y arriba
         barra.addSubview_(derecha)
-        self.boton_guardar = ui.bezel_button("Guardar", NSMakeRect(214 - 80, 0, 80, 28),
+        derecha.addSubview_(ui.menu_button("Exportar…", ["PDF", "Word (.docx)"],
+                                           NSMakeRect(0, 0, 104, 28), self, b"exportarComo:"))
+        derecha.addSubview_(ui.bezel_button("Mostrar en Finder", NSMakeRect(110, 0, 128, 28),
+                                            self, b"mostrarEnFinder:"))
+        self.boton_guardar = ui.bezel_button("Guardar", NSMakeRect(244, 0, 80, 28),
                                              self, b"guardarDocumento:")
         self.boton_guardar.setEnabled_(False)
         derecha.addSubview_(self.boton_guardar)
-        derecha.addSubview_(ui.bezel_button("Mostrar en Finder", NSMakeRect(214 - 80 - 6 - 128, 0, 128, 28),
-                                            self, b"mostrarEnFinder:"))
 
         if alto_personas:
             self.construirPersonas(barra)
@@ -503,6 +510,27 @@ class Editor(NSObject):
         if ruta is not None:
             NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_(
                 [NSURL.fileURLWithPath_(str(ruta))])
+
+    def exportarComo_(self, sender):
+        """Exporta a PDF o a Word, preguntando dónde guardarlo."""
+        formato = "pdf" if "PDF" in (sender.titleOfSelectedItem() or "") else "word"
+        if self.sucio and not self.guardar():
+            return
+        ruta = biblioteca.ubicar(self.ficha)
+        panel = NSSavePanel.savePanel()
+        panel.setNameFieldStringValue_((ruta.stem if ruta else "Transcripción")
+                                       + exportar.FORMATOS[formato])
+        panel.setAllowedFileTypes_([exportar.FORMATOS[formato][1:]])
+        panel.setPrompt_("Exportar")
+        if panel.runModal() != 1:
+            return
+        try:
+            destino = exportar.exportar(self.ficha, formato, Path(panel.URL().path()))
+        except exportar.ErrorExportar as e:
+            self.dueno.alerta("No se pudo exportar", str(e), ["Aceptar"])
+            return
+        NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_(
+            [NSURL.fileURLWithPath_(str(destino))])
 
     # --------------------------------------------------------------- personas --
     def renombrarPersona_(self, sender):

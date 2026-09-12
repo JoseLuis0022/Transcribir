@@ -19,11 +19,13 @@ from agentes import GUIA  # noqa: E402
 from identidad import ID_APP  # noqa: E402
 
 SOCKET = Path.home() / "Library" / "Application Support" / "Transcribir" / "transcribir.sock"
-SUBCOMANDOS = ("estado", "cancelar", "ajustes", "guia", "abrir", "limpiar")
+SUBCOMANDOS = ("estado", "cancelar", "ajustes", "guia", "abrir", "limpiar",
+               "historial", "texto", "personas", "exportar", "tiempos", "olvidar")
 
 AYUDA = """\
 uso: transcribir ARCHIVO... [--texto] [--json] [--no-esperar] [opciones]
      transcribir estado | cancelar ID...|--todo | ajustes [CLAVE VALOR] | limpiar | abrir | guia
+     transcribir historial [--buscar TEXTO] | texto FICHA | abrir FICHA | exportar FICHA
 
 `transcribir guia` explica todos los comandos y opciones.
 """
@@ -227,7 +229,96 @@ def cmd_limpiar(args) -> int:
 
 def cmd_abrir(args) -> int:
     abrir_app(segundo_plano=False)
-    unico({"accion": "mostrar"})
+    if not args.ficha:
+        unico({"accion": "mostrar"})
+        return 0
+    r = unico({"accion": "abrir_ficha", "ficha": args.ficha, "segundo": segundos(args.en)})
+    print(f"abierta en el editor: {r['nombre']} → {r['archivo']}")
+    return 0
+
+
+# ------------------------------------------------------------------ historial --
+def segundos(momento):
+    """«12:30» o «1:02:03» o «45» a segundos. None si no se pidió."""
+    if not momento:
+        return None
+    partes = [float(p) for p in str(momento).split(":")]
+    total = 0.0
+    for parte in partes:
+        total = total * 60 + parte
+    return total
+
+
+def linea_ficha(f) -> str:
+    estado = "" if f["encontrado"] else "  [no encontrado]"
+    marcas = " ·tiempos" if f["tiempos"] else ""
+    return (f"  {f['id']}  {f['nombre']}  ({f['duracion'] and round(f['duracion'] / 60)} min"
+            f"{marcas}){estado}\n    {f['archivo'] or f['nombre']}"
+            + (f"\n    {f['coincidencia']}" if f.get("coincidencia") else ""))
+
+
+def cmd_historial(args) -> int:
+    r = unico({"accion": "historial", "consulta": args.buscar or "", "limite": args.limite})
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    encontradas = r["transcripciones"]
+    if not encontradas:
+        print("nada en el historial" if not args.buscar else f"nada que contenga «{args.buscar}»")
+        return 1 if args.buscar else 0
+    print(f"{len(encontradas)} de {r['total']} en el historial:")
+    for f in encontradas:
+        print(linea_ficha(f))
+    return 0
+
+
+def cmd_texto(args) -> int:
+    r = unico({"accion": "texto", "ficha": args.ficha, "con_tiempos": args.tiempos})
+    if args.json:
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    print(r["texto"])
+    return 0
+
+
+def cmd_personas(args) -> int:
+    nombres = {}
+    for pareja in args.nombres:
+        if "=" not in pareja:
+            print(f"usa NÚMERO=Nombre, por ejemplo 1=Ana (recibido: {pareja})", file=sys.stderr)
+            return 1
+        numero, nombre = pareja.split("=", 1)
+        nombres[numero.strip()] = nombre.strip()
+    r = unico({"accion": "personas", "ficha": args.ficha, "nombres": nombres})
+    if not r["personas"]:
+        print("esta transcripción no tiene personas marcadas", file=sys.stderr)
+        return 1
+    for numero, nombre in sorted(r["personas"].items()):
+        print(f"{numero} = {nombre or f'Persona {numero}'}")
+    return 0
+
+
+def cmd_exportar(args) -> int:
+    formatos = [f.strip().lower() for f in args.formato.split(",") if f.strip()]
+    r = unico({"accion": "exportar", "ficha": args.ficha, "formatos": formatos,
+               "destino": str(Path(args.destino).expanduser().resolve()) if args.destino else None})
+    for ruta in r["archivos"]:
+        print(ruta)
+    return 0
+
+
+def cmd_tiempos(args) -> int:
+    r = unico({"accion": "tiempos", "ficha": args.ficha})
+    if r["ya_estaban"]:
+        print("esta transcripción ya tiene tiempos por palabra")
+        return 0
+    print(f"calculando los tiempos (trabajo #{r['trabajo']}); mira `transcribir estado`")
+    return 0
+
+
+def cmd_olvidar(args) -> int:
+    r = unico({"accion": "olvidar", "ficha": args.ficha})
+    print(f"fuera del historial: {r['olvidada']} (tus archivos siguen en su sitio)")
     return 0
 
 
@@ -271,7 +362,35 @@ def parser_subcomandos() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_ajustes)
     sub.add_parser("limpiar", help="vacía la lista de terminados").set_defaults(func=cmd_limpiar)
-    sub.add_parser("abrir", help="trae la ventana al frente").set_defaults(func=cmd_abrir)
+    s = sub.add_parser("abrir", help="trae la ventana al frente, o abre una transcripción")
+    s.add_argument("ficha", nargs="?", help="id del historial o parte del nombre")
+    s.add_argument("--en", help="momento donde empezar, por ejemplo 12:30")
+    s.set_defaults(func=cmd_abrir)
+    s = sub.add_parser("historial", help="las transcripciones guardadas")
+    s.add_argument("--buscar", help="solo las que contienen este texto")
+    s.add_argument("--limite", type=int, default=50)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_historial)
+    s = sub.add_parser("texto", help="imprime una transcripción del historial")
+    s.add_argument("ficha")
+    s.add_argument("--tiempos", action="store_true", help="añade los tiempos por palabra (con --json)")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_texto)
+    s = sub.add_parser("personas", help="pone nombre a quien habla")
+    s.add_argument("ficha")
+    s.add_argument("nombres", nargs="+", metavar="NÚMERO=Nombre")
+    s.set_defaults(func=cmd_personas)
+    s = sub.add_parser("exportar", help="a PDF o a Word")
+    s.add_argument("ficha")
+    s.add_argument("--formato", default="pdf", help="pdf, word o pdf,word")
+    s.add_argument("--destino", help="carpeta donde dejarlos")
+    s.set_defaults(func=cmd_exportar)
+    s = sub.add_parser("tiempos", help="calcula el resaltado de una transcripción ya hecha")
+    s.add_argument("ficha")
+    s.set_defaults(func=cmd_tiempos)
+    s = sub.add_parser("olvidar", help="quita una transcripción del historial")
+    s.add_argument("ficha")
+    s.set_defaults(func=cmd_olvidar)
     sub.add_parser("guia", help="guía para agentes").set_defaults(func=cmd_guia)
     return p
 

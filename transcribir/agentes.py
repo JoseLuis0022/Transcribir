@@ -25,6 +25,17 @@ Comandos:
   transcribir limpiar                  vacía la lista de terminados (no borra archivos)
   transcribir abrir                    trae la ventana al frente
 
+Lo que ya está transcrito (el historial; FICHA es su id o parte del nombre):
+
+  transcribir historial [--json]       las transcripciones guardadas
+  transcribir historial --buscar TEXTO las que contienen ese texto, con la frase
+  transcribir texto FICHA [--tiempos]  imprime la transcripción (y sus tiempos por palabra)
+  transcribir abrir FICHA [--en 12:30] abre el editor para que el usuario la vea y la corrija
+  transcribir personas FICHA 1=Ana 2=Luis    pone nombre a quien habla, en el archivo
+  transcribir exportar FICHA --formato pdf,word [--destino CARPETA]
+  transcribir tiempos FICHA            calcula el resaltado (vuelve a escuchar el audio)
+  transcribir olvidar FICHA            la quita del historial (no borra tus archivos)
+
 Opciones solo para esa petición (no cambian los ajustes del usuario):
 
   --idioma es|en|auto          --formato parrafos|tiempos|srt
@@ -47,6 +58,14 @@ Cómo usarla bien:
     qué (se combina con cualquier formato).
   · Los resultados se guardan donde el usuario lo tenga configurado (por
     defecto, el Escritorio); la ruta sale en la salida del comando.
+  · El .txt del usuario es la transcripción de verdad: la app solo recuerda
+    dónde está. Si te piden algo de una grabación anterior, busca en
+    `transcribir historial --buscar` antes de volver a transcribir.
+  · Los tiempos por palabra solo existen si se pidieron (formato tiempos o srt,
+    --personas, o el ajuste «tiempos»). `transcribir tiempos FICHA` los calcula
+    después, volviendo a escuchar el audio y respetando el texto corregido.
+  · Si corriges un texto, hazlo en el archivo del usuario y avísale; para que lo
+    revise escuchando, `transcribir abrir FICHA --en 12:30`.
   · No cambies ajustes permanentes (`transcribir ajustes CLAVE VALOR`) salvo
     que el usuario lo pida; usa las opciones de la petición.
   · Códigos de salida: 0 bien, 1 algún archivo falló, 2 la app no está
