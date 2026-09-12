@@ -32,7 +32,14 @@ PAD = 20.0
 TRANSPORTE = 52.0                # la barra del reproductor
 SALTO = 15.0                     # los segundos que retroceden o adelantan los botones
 ESCALA = 600                     # precisión de los tiempos del reproductor
-VELOCIDADES = [(0.75, "0,75×"), (1.0, "1×"), (1.25, "1,25×"), (1.5, "1,5×"), (2.0, "2×")]
+def _velocidades():
+    """De 0,5× a 6×, de cuarto en cuarto donde se usa y a saltos al final."""
+    valores = [0.5, 0.75] + [1.0 + 0.25 * i for i in range(13)] + [4.5, 5.0, 6.0]
+    return [(v, f"{v:g}×".replace(".", ",")) for v in valores]
+
+
+VELOCIDADES = _velocidades()
+NORMAL_VEL = [v for v, _ in VELOCIDADES].index(1.0)
 
 CMD, OPT = 1 << 20, 1 << 19      # teclas ⌘ y ⌥
 ANCHO_FLEX, ALTO_FLEX = 2, 16
@@ -54,7 +61,7 @@ TENUE = 0.5                      # lo apagado que queda lo que aún no se ha dic
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
 INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
-AIRE = 40.0
+AIRE = 22.0
 TAMANOS = (12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0)     # los del ajuste
 COLUMNA = 540.0                  # ~70 caracteres por línea, que es lo cómodo de leer
 
@@ -112,40 +119,36 @@ class Bloque:
         return f"{reloj(self.desde)} – {reloj(self.hasta)}"
 
 
-# ------------------------------------------------------------------- el texto --
-class VistaTexto(NSTextView):
-    """El texto de la transcripción: se edita como en cualquier editor, y además
-    ⌘ + clic en una palabra salta a ese momento y ⌥ + espacio reproduce o pausa.
+class Cabeceras(NSView):
+    """Quién habla y de qué minuto a qué minuto, encima de cada intervención.
 
-    En el margen izquierdo se dibuja la hora de cada intervención, que no está en
-    el archivo: es solo de la ventana, y se puede pulsar para escuchar desde ahí.
+    Va en una vista propia, pegada al texto, por dos motivos: el área de texto
+    recorta lo que se dibuja fuera de sus márgenes —y la cabecera de la primera
+    intervención cae justo ahí— y así tampoco la tapa el azul de la selección
+    cuando se selecciona todo.
     """
 
-    def drawViewBackgroundInRect_(self, rect):
-        """Encima de cada intervención, quién habla y de qué minuto a qué minuto.
+    def isFlipped(self):
+        return True
 
-        No está en el archivo: se dibuja aquí, en el hueco que deja el párrafo.
-        """
-        objc.super(VistaTexto, self).drawViewBackgroundInRect_(rect)
-        dueno = getattr(self, "dueno", None)
+    def hitTest_(self, punto):
+        return None                       # los clics son del texto, no de aquí
+
+    def drawRect_(self, rect):
+        texto = self.superview()
+        dueno = getattr(texto, "dueno", None) if texto is not None else None
         if dueno is None:
             return
-        if dueno.pastilla is not None:
-            x, y, ancho_p, alto_p = dueno.pastilla
-            COLOR_RESALTE.colorWithAlphaComponent_(0.26).setFill()
-            NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                NSMakeRect(x, y, ancho_p, alto_p), 5.0, 5.0).fill()
         arriba, abajo = rect.origin.y, rect.origin.y + rect.size.height
+        izquierda = texto.textContainerOrigin().x
+        ancho = self.bounds().size.width - izquierda
         for bloque in dueno.bloques:
             if not bloque.cabecera:
                 continue
             y = dueno.altoDeBloque(bloque)
             if y is None or y + bloque.cabecera < arriba or y > abajo:
                 continue
-            izquierda = self.textContainerOrigin().x
-            ancho = self.bounds().size.width - izquierda
-            # el renglón de la cabecera, encima del párrafo
-            alto = y - bloque.tamano - 8
+            alto = y - bloque.tamano - 8       # el renglón, encima del párrafo
             x = izquierda
             escrito = dueno.comoSeLlama(bloque)
             if escrito and bloque.numero != dueno.editandoEnElTexto():
@@ -157,6 +160,27 @@ class VistaTexto(NSTextView):
                 ui.cifras(bloque.cuando, bloque.hora_tamano, NSColor.tertiaryLabelColor(),
                           ui.W_REGULAR).drawInRect_(
                     NSMakeRect(x, alto + 3, ancho - x, bloque.hora_tamano + 4))
+
+
+# ------------------------------------------------------------------- el texto --
+class VistaTexto(NSTextView):
+    """El texto de la transcripción: se edita como en cualquier editor, y además
+    ⌘ + clic en una palabra salta a ese momento y ⌥ + espacio reproduce o pausa.
+
+    En el margen izquierdo se dibuja la hora de cada intervención, que no está en
+    el archivo: es solo de la ventana, y se puede pulsar para escuchar desde ahí.
+    """
+
+    def drawViewBackgroundInRect_(self, rect):
+        """El rastro del resaltado, por detrás del texto."""
+        objc.super(VistaTexto, self).drawViewBackgroundInRect_(rect)
+        dueno = getattr(self, "dueno", None)
+        if dueno is None or dueno.pastilla is None:
+            return
+        x, y, ancho_p, alto_p = dueno.pastilla
+        COLOR_RESALTE.colorWithAlphaComponent_(0.26).setFill()
+        NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(x, y, ancho_p, alto_p), 5.0, 5.0).fill()
 
     def mouseDown_(self, evento):
         punto = self.convertPoint_fromView_(evento.locationInWindow(), None)
@@ -227,7 +251,7 @@ class Editor(NSObject):
         self.apagado = None                   # lo que falta por decir, más apagado
         self.pastilla = self.destino = None    # el fondo que se desliza
         self.avance = None                    # la barra de «calcular los tiempos»
-        self.veloz = 1
+        self.veloz = NORMAL_VEL
         self.ver_panel = bool(pref.leer(pref.PANEL))
         self.sucio = False
         self.arrastrando = False
@@ -372,20 +396,43 @@ class Editor(NSObject):
         caja = self.dentro_panel
         for vista in list(caja.subviews()):
             vista.removeFromSuperview()
+        self.cerrados = set(filter(None, pref.leer(pref.CERRADOS).split(",")))
+        self.apartados = []
         ancho = caja.frame().size.width
         margen, eje = 20.0, 92.0                  # el eje donde se juntan etiqueta y valor
         util = ancho - margen * 2
+        # el bezel de un botón se dibuja 7 pt por dentro de su marco (medido); se le
+        # dan esos 7 pt a cada lado para que su borde quede a ras del campo de texto
+        boton_x, boton_w = margen - 7, util + 14
         y = [18.0]                                # de arriba hacia abajo (vista volteada)
 
-        def titulo(texto, simbolo, primero=False):
-            if not primero:
+        def titulo(texto, simbolo, clave=None):
+            """La cabecera de un apartado. Con `clave`, se puede plegar pulsándola."""
+            if self.apartados:                    # el primero no lleva separador encima
                 y[0] += 14
                 caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
                 y[0] += 16
             caja.addSubview_(ui.icon_view(simbolo, NSMakeRect(margen, y[0] + 1, 14, 14),
                                           NSColor.secondaryLabelColor(), 11.0))
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen + 20, y[0], util - 20, 16)))
+            abierto = True
+            if clave is not None:
+                abierto = clave not in self.cerrados
+                caja.addSubview_(ui.icon_view("chevron.down" if abierto else "chevron.right",
+                                              NSMakeRect(ancho - margen - 12, y[0] + 2, 12, 12),
+                                              NSColor.tertiaryLabelColor(), 9.0))
+                pulsar = NSButton.alloc().initWithFrame_(
+                    NSMakeRect(margen - 4, y[0] - 4, util + 8, 24))
+                pulsar.setBordered_(False)
+                pulsar.setTitle_("")
+                pulsar.setTarget_(self)
+                pulsar.setAction_(b"plegarApartado:")
+                pulsar.setToolTip_("Plegar o desplegar")
+                self.apartados.append(clave)
+                pulsar.setTag_(len(self.apartados) - 1)
+                caja.addSubview_(pulsar)
             y[0] += 22
+            return abierto
 
         def control(etiqueta, vista, alto=22.0):
             """Una fila del panel con su control a la derecha del mismo eje."""
@@ -408,8 +455,30 @@ class Editor(NSObject):
         nombres = self.ficha.get("personas") or {}
         quienes = self.personas()
         self.filas_persona = {}
-        if quienes:
-            titulo("PERSONAS", "person.2.fill", primero=True)
+        ruta = biblioteca.ubicar(self.ficha)
+        ajustes = self.ficha.get("ajustes") or {}
+
+        def apartado_personas():
+            if not quienes:                       # todavía no se sabe quién habla
+                if not self.tiene_audio or not titulo("PERSONAS", "person.2.fill", "separar"):
+                    return
+                self.boton_personas = ui.bezel_button("Separar por persona",
+                                                      NSMakeRect(boton_x, y[0], boton_w, 24),
+                                                      self, b"separarPersonas:", size=11.5)
+                self.boton_personas.setToolTip_(
+                    "Vuelve a escuchar el audio para saber quién habla en cada momento.\n"
+                    "Reescribe tu archivo con «Persona 1:», «Persona 2:»…")
+                caja.addSubview_(self.boton_personas)
+                y[0] += 30
+                caja.addSubview_(ui.label("Marca quién habla en cada intervención y reescribe "
+                                          "tu archivo.", 11.0, ui.W_REGULAR,
+                                          NSColor.tertiaryLabelColor(),
+                                          NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+                y[0] += 26
+                return
+            if not titulo("PERSONAS", "person.2.fill", "personas"):
+                y[0] += 2
+                return
             for i, numero in enumerate(quienes):
                 color = self.colorDe(numero, i)
                 fila = NSView.alloc().initWithFrame_(NSMakeRect(margen, y[0], util, 24))
@@ -441,22 +510,48 @@ class Editor(NSObject):
                 self.filas_persona[numero] = (fila, boton)
                 y[0] += 24
 
-        ruta = biblioteca.ubicar(self.ficha)
-        ajustes = self.ficha.get("ajustes") or {}
-        titulo("DETALLES", "info.circle.fill", primero=not quienes)
-        dato("Duración", reloj(self.ficha.get("duracion") or 0))
-        dato("Fecha", exportar.fecha_corta(self.ficha.get("creado")))
-        dato("Idioma", {"es": "Español", "en": "Inglés"}.get(ajustes.get("idioma"), "Automático"))
-        dato("Precisión", "Máxima" if ajustes.get("precision") == "alta" else "Rápida")
-        dato("Formato", {"parrafos": "Párrafos", "tiempos": "Con tiempos",
-                         "srt": "Subtítulos"}.get(self.ficha.get("formato"), "Párrafos"))
-        if ruta is not None:
-            dato("Carpeta", "Escritorio" if ruta.parent == biblioteca.ESCRITORIO else ruta.parent.name)
-        if self.ficha.get("cliente"):
-            dato("Lo pidió", self.ficha["cliente"])
+        def apartado_detalles():
+            if not titulo("DETALLES", "info.circle.fill", "detalles"):
+                return
+            dato("Duración", reloj(self.ficha.get("duracion") or 0))
+            dato("Fecha", exportar.fecha_corta(self.ficha.get("creado")))
+            dato("Idioma", {"es": "Español", "en": "Inglés"}.get(ajustes.get("idioma"), "Automático"))
+            dato("Precisión", "Máxima" if ajustes.get("precision") == "alta" else "Rápida")
+            dato("Formato", {"parrafos": "Párrafos", "tiempos": "Con tiempos",
+                             "srt": "Subtítulos"}.get(self.ficha.get("formato"), "Párrafos"))
+            if ruta is not None:
+                dato("Carpeta", "Escritorio" if ruta.parent == biblioteca.ESCRITORIO
+                     else ruta.parent.name)
+            if self.ficha.get("cliente"):
+                dato("Lo pidió", self.ficha["cliente"])
 
-        titulo("RESALTADO", "highlighter")
-        if self.tiene_audio:
+        def apartado_vocabulario():
+            if not titulo("VOCABULARIO", "character.book.closed.fill", "vocabulario"):
+                return
+            self.campo_pistas = ui.text_field(NSMakeRect(margen, y[0], util, 24),
+                                              "Nombres, siglas, términos…", self, b"guardarPistas:")
+            self.campo_pistas.setStringValue_(ajustes.get("vocabulario") or "")
+            caja.addSubview_(self.campo_pistas)
+            y[0] += 30
+            if self.tiene_audio:
+                self.boton_otra = ui.bezel_button("Volver a transcribir",
+                                                  NSMakeRect(boton_x, y[0], boton_w, 24),
+                                                  self, b"otraVez:", size=11.5)
+                self.boton_otra.setToolTip_(
+                    "Vuelve a escuchar el audio con estas pistas y reescribe tu archivo.\n"
+                    "Tarda lo mismo que la primera vez.")
+                caja.addSubview_(self.boton_otra)
+                y[0] += 30
+            caja.addSubview_(ui.label("Palabras que el modelo debe escribir bien: nombres propios, "
+                                      "siglas o jerga del audio.",
+                                      11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                      NSMakeRect(margen, y[0], util, 44), ui.ALIGN_LEFT))
+            y[0] += 34
+
+        def apartado_resaltado():
+            abierto = titulo("RESALTADO", "highlighter", "resaltado")
+            if not abierto or not self.tiene_audio:
+                return
             tipos = [pref.ETIQUETAS[pref.RESALTADO][c] for c in ("palabra", "fondo")]
             menu_tipo = ui.popup(NSMakeRect(0, 0, 10, 22), tipos, self, b"elegirResaltado:")
             menu_tipo.setControlSize_(1)
@@ -471,38 +566,29 @@ class Editor(NSObject):
             control("Fuerza", menu_fuerza)
             y[0] += 6
 
-        if not self.palabras and self.tiene_audio:
-            self.boton_tiempos = ui.bezel_button("Calcular los tiempos",
-                                                 NSMakeRect(margen, y[0], util, 24),
-                                                 self, b"activarResaltado:", size=11.5)
-            self.boton_tiempos.setToolTip_(
-                "Vuelve a escuchar el audio para saber cuándo suena cada palabra.\n"
-                "Tu texto no cambia: se respeta tal como está.")
-            caja.addSubview_(self.boton_tiempos)
-            y[0] += 30
-            caja.addSubview_(ui.label("Esta transcripción no guardó cuándo suena cada palabra.",
-                                      11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                      NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
-        elif self.palabras and self.tiene_audio:
-            caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
-                                      11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                      NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
-            y[0] += 24
+            if not self.palabras:
+                self.boton_tiempos = ui.bezel_button("Calcular los tiempos",
+                                                     NSMakeRect(boton_x, y[0], boton_w, 24),
+                                                     self, b"activarResaltado:", size=11.5)
+                self.boton_tiempos.setToolTip_(
+                    "Vuelve a escuchar el audio para saber cuándo suena cada palabra.\n"
+                    "Tu texto no cambia: se respeta tal como está.")
+                caja.addSubview_(self.boton_tiempos)
+                y[0] += 30
+                caja.addSubview_(ui.label("Esta transcripción no guardó cuándo suena cada palabra.",
+                                          11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                          NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+            else:
+                caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
+                                          11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                                          NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+                y[0] += 24
 
-        if not quienes and self.tiene_audio:
-            titulo("PERSONAS", "person.2.fill")
-            self.boton_personas = ui.bezel_button("Separar por persona",
-                                                  NSMakeRect(margen, y[0], util, 24),
-                                                  self, b"separarPersonas:", size=11.5)
-            self.boton_personas.setToolTip_(
-                "Vuelve a escuchar el audio para saber quién habla en cada momento.\n"
-                "Reescribe tu archivo con «Persona 1:», «Persona 2:»…")
-            caja.addSubview_(self.boton_personas)
-            y[0] += 30
-            caja.addSubview_(ui.label("Marca quién habla en cada intervención y reescribe "
-                                      "tu archivo.", 11.0, ui.W_REGULAR,
-                                      NSColor.tertiaryLabelColor(),
-                                      NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+        # de arriba abajo: qué es esto, quién habla, cómo se resalta y con qué pistas
+        apartado_detalles()
+        apartado_personas()
+        apartado_resaltado()
+        apartado_vocabulario()
 
     # ------------------------------------------------------------------ texto --
     @objc.python_method
@@ -535,6 +621,9 @@ class Editor(NSObject):
         self.texto.textContainer().setLineFragmentPadding_(0.0)
         self.texto.textContainer().setWidthTracksTextView_(True)
         self.texto.textContainer().setContainerSize_((ancho, 1e7))
+        self.cabeceras = Cabeceras.alloc().initWithFrame_(self.texto.bounds())
+        self.cabeceras.setAutoresizingMask_(ANCHO_FLEX | ALTO_FLEX)
+        self.texto.addSubview_(self.cabeceras)
         scroll.setDocumentView_(self.texto)
         fondo.addSubview_(scroll)
         return fondo
@@ -579,7 +668,7 @@ class Editor(NSObject):
                                   [t for _, t in VELOCIDADES], self, b"cambiarVelocidad:")
         self.velocidad.setBordered_(False)
         self.velocidad.setControlSize_(1)
-        self.velocidad.selectItemAtIndex_(1)
+        self.velocidad.selectItemAtIndex_(NORMAL_VEL)
         self.velocidad.setToolTip_("Velocidad de reproducción")
         self.velocidad.setAutoresizingMask_(1)
         barra.addSubview_(self.velocidad)
@@ -681,7 +770,7 @@ class Editor(NSObject):
         # TextKit no aplica el hueco superior al primer párrafo: se lo da la vista
         self.aire_arriba = (self.bloques[0].cabecera if self.bloques else 0) + AIRE
         self.ajustarColumna()
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
         self.ventana.invalidateCursorRectsForView_(self.texto)
 
     def cambiarResaltado_(self, sender):
@@ -746,13 +835,22 @@ class Editor(NSObject):
         self.rehacerMapa()
 
     @objc.python_method
+    def repintarCabeceras(self):
+        """Repinta el texto y, pegada a él, la capa con los nombres y las horas."""
+        self.texto.setNeedsDisplay_(True)
+        capa = getattr(self, "cabeceras", None)
+        if capa is not None:
+            capa.setFrame_(self.texto.bounds())
+            capa.setNeedsDisplay_(True)
+
+    @objc.python_method
     def ajustarColumna(self):
         """Una columna de lectura centrada: las líneas muy largas cansan la vista."""
         ancho = self.texto.frame().size.width
         lado = max((ancho - COLUMNA) / 2.0, 0.0)
         self.texto.setTextContainerInset_((lado, getattr(self, "aire_arriba", AIRE)))
         self.texto.textContainer().setContainerSize_((max(ancho - lado * 2, 100.0), 1e7))
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
 
     def windowDidResize_(self, notificacion):
         self.ajustarColumna()
@@ -842,7 +940,7 @@ class Editor(NSObject):
         campo.setStringValue_(actual)
         campo.setDelegate_(self)
         self.campo_nombre = (campo, str(numero))
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
         vista.addSubview_(campo)
         self.ventana.makeFirstResponder_(campo)
 
@@ -857,14 +955,14 @@ class Editor(NSObject):
         for vista in getattr(self, "oculto", ()) or ():
             vista.setHidden_(False)
         self.oculto = None
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
         self.ventana.makeFirstResponder_(self.texto)
 
     def controlTextDidChange_(self, notificacion):
         if notificacion.object() is self.buscador:
             self.buscar_en_texto(self.buscador.stringValue())
         elif self.campo_nombre and notificacion.object() is self.campo_nombre[0]:
-            self.texto.setNeedsDisplay_(True)      # el nombre se ve cambiar en el texto
+            self.repintarCabeceras()      # el nombre se ve cambiar en el texto
 
     def control_textView_doCommandBySelector_(self, control, vista, selector):
         if selector != "cancelOperation:":
@@ -940,6 +1038,11 @@ class Editor(NSObject):
         self.ficha = ficha
         self.ventana.setTitle_(ficha.get("nombre", "Transcripción"))
         self.palabras = biblioteca.palabras(ficha["id"]) or []
+        fuera = biblioteca.texto(ficha)
+        if fuera is not None and not self.sucio and fuera != self.contenido():
+            self.apagarResaltado()
+            self.cargar(fuera)             # se rehízo el texto: se vuelve a leer
+            return
         self.rehacerMapa()
         self.pintarDetalle()
 
@@ -982,6 +1085,8 @@ class Editor(NSObject):
         if not self.tiene_audio or self.reproductor is not None:
             return
         item = AVPlayerItem.playerItemWithURL_(NSURL.fileURLWithPath_(str(self.audio)))
+        # sin esto el audio enmudece por encima de 2×
+        item.setAudioTimePitchAlgorithm_("TimeDomain")
         self.reproductor = AVPlayer.playerWithPlayerItem_(item)
         self.vigilante = self.reproductor.addPeriodicTimeObserverForInterval_queue_usingBlock_(
             CMTimeMakeWithSeconds(1.0 / 60.0, ESCALA), None, self.alSonar)
@@ -1266,7 +1371,7 @@ class Editor(NSObject):
             paso = 0.30
             self.pastilla = tuple(a + (d - a) * paso for a, d in zip(antes, destino))
         if self.pastilla != antes:
-            self.texto.setNeedsDisplay_(True)
+            self.repintarCabeceras()
 
     @objc.python_method
     def apagarResaltado(self):
@@ -1283,7 +1388,7 @@ class Editor(NSObject):
         self.pintadas, self.apagado = {}, None
         self.pastilla = self.destino = None
         self.resaltada = None
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
 
     # -------------------------------------------------------------- acciones --
     def reproducir_(self, sender):
@@ -1377,6 +1482,38 @@ class Editor(NSObject):
             [NSURL.fileURLWithPath_(str(destino))])
 
     # --------------------------------------------------------------- personas --
+    def plegarApartado_(self, sender):
+        """Pulsar la cabecera de un apartado lo pliega o lo despliega, y se recuerda."""
+        if sender.tag() >= len(self.apartados):
+            return
+        clave = self.apartados[sender.tag()]
+        cerrados = set(self.cerrados)
+        cerrados.symmetric_difference_update({clave})
+        pref.escribir(pref.CERRADOS, ",".join(sorted(cerrados)))
+        self.pintarPanel()
+
+    def guardarPistas_(self, sender):
+        """Las pistas se guardan en la ficha aunque no se rehaga ahora mismo."""
+        self.ficha.setdefault("ajustes", {})["vocabulario"] = sender.stringValue().strip()
+        biblioteca.guardar(self.ficha)
+
+    def otraVez_(self, sender):
+        """Rehace esta transcripción con las pistas de ahora."""
+        pistas = self.campo_pistas.stringValue().strip()
+        self.guardarPistas_(self.campo_pistas)
+        if self.sucio and not self.guardar():
+            return
+        aviso = ("Se va a transcribir otra vez este audio con las pistas nuevas y se "
+                 "reescribirá tu archivo de texto.")
+        if self.dueno.alerta("¿Volver a transcribir?", aviso, ["Transcribir", "Cancelar"]) != 1000:
+            return
+        if self.dueno.calcularTiempos(self.ficha, tarea="otra_vez", vocabulario=pistas) is None:
+            return
+        sender.setEnabled_(False)
+        sender.setAttributedTitle_(ui.attributed("Transcribiendo…", 12.0, ui.W_REGULAR,
+                                                 NSColor.secondaryLabelColor()))
+        self.ponerAvance(sender, "Escuchando el audio otra vez…")
+
     def menuColor_(self, sender):
         """El punto de color abre la paleta."""
         self.color_de = str(sender.tag())
@@ -1393,7 +1530,7 @@ class Editor(NSObject):
         biblioteca.guardar(self.ficha)
         self.rehacerMapa()
         self.pintarPanel()
-        self.texto.setNeedsDisplay_(True)
+        self.repintarCabeceras()
         self.dueno.alGuardarFicha(self.ficha)
 
     def renombrarPrimera_(self, sender):

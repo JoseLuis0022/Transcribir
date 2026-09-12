@@ -882,7 +882,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         else:
             self.pintarCola()
         self.pintar()
-        if item.get("tarea") in ("tiempos", "personas"):
+        if item.get("tarea") in ("tiempos", "personas", "otra_vez"):
             editor = self.editores.get(item.get("ficha"))
             if editor is not None:
                 editor.avanceTiempos(fraccion, texto)
@@ -906,7 +906,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 editor.recargar(ficha)
             if self.ventana_historial is not None:
                 self.ventana_historial.pintar()
-        if item.get("tarea") in ("tiempos", "personas"):   # nada que anunciar: no es un archivo nuevo
+        if item.get("tarea") in ("tiempos", "personas", "otra_vez"):   # no es un archivo nuevo
             self.alCambiarCola()
             return
         self.lote_listos.append((item["ruta"].name, ruta_txt))
@@ -1337,22 +1337,27 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         return ficha
 
     @objc.python_method
-    def calcularTiempos(self, ficha, tarea="tiempos"):
-        """Encola volver sobre una transcripción ya hecha: sus tiempos, o separarla
-        por persona y reescribir el archivo con quién habla."""
+    def calcularTiempos(self, ficha, tarea="tiempos", vocabulario=None):
+        """Encola volver sobre una transcripción ya hecha: sus tiempos, separarla
+        por persona, o rehacerla entera con otras pistas."""
         audio_origen = biblioteca.ubicar(ficha, "origen")
         if audio_origen is None:
             self.alerta("No se encontró el audio",
-                        f"Para calcular los tiempos hace falta el archivo original:\n"
+                        "Hace falta el archivo original, y no está donde estaba:\n"
                         f"{ficha.get('origen', '')}", ["Aceptar"])
             return None
         ajustes = ficha.get("ajustes") or {}
         opciones = {"idioma": ajustes.get("idioma") or "es",
                     "precision": ajustes.get("precision") or "alta",
-                    "vocabulario": ajustes.get("vocabulario") or "",
+                    "vocabulario": (ajustes.get("vocabulario") or "") if vocabulario is None
+                                   else vocabulario,
                     "formato": "parrafos", "destino": str(audio_origen.parent),
                     "ficha": ficha["id"]}
-        quien = "Separando" if tarea == "personas" else "Resaltado"
+        if tarea == "otra_vez":
+            opciones["formato"] = ficha.get("formato") or "parrafos"
+            opciones["personas"] = bool(ajustes.get("personas"))
+            opciones["tiempos"] = bool(ficha.get("tiempos"))
+        quien = {"personas": "Separando", "otra_vez": "Rehaciendo"}.get(tarea, "Resaltado")
         trabajo = Trabajo(next(self.ids), audio_origen, opciones, quien, tarea=tarea)
         self.cola.append({"id": trabajo.id, "ruta": audio_origen, "fraccion": None,
                           "cliente": quien, "tarea": tarea, "ficha": ficha["id"]})

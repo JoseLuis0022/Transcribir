@@ -31,6 +31,34 @@ DESTRUCTIVA, NORMAL = 1, 0       # estilos de una acción al deslizar
 DERECHA = 1                      # el borde por el que se desliza
 
 
+class Fila(NSView):
+    """Una fila de la lista, que se recoloca sola.
+
+    La tabla decide el ancho de la fila después de crearla —y con el estilo de
+    Notas le quita márgenes por los lados—, así que las posiciones se calculan
+    cada vez que cambia, y no al pintarla: si no, los botones acaban pegados al
+    borde derecho.
+    """
+
+    def setFrameSize_(self, tamano):
+        objc.super(Fila, self).setFrameSize_(tamano)
+        self.colocar()
+
+    @objc.python_method
+    def colocar(self):
+        ancho = self.frame().size.width
+        if ancho <= 0 or getattr(self, "icono", None) is None:
+            return
+        x_icono = ancho - PAD - BOTON
+        x_boton = x_icono - 10 - ACCION
+        ancho_texto = max(x_boton - PAD - 40, 20.0)
+        self.icono.setFrameOrigin_((x_icono, self.icono.frame().origin.y))
+        self.accion.setFrameOrigin_((x_boton, self.accion.frame().origin.y))
+        for texto in (self.titulo, self.detalle):
+            marco = texto.frame()
+            texto.setFrameSize_((ancho_texto, marco.size.height))
+
+
 class Historial(NSObject):
 
     def initWithDueno_(self, dueno):
@@ -100,7 +128,10 @@ class Historial(NSObject):
         self.tabla = NSTableView.alloc().initWithFrame_(NSMakeRect(0, 0, W, alto))
         columna = NSTableColumn.alloc().initWithIdentifier_("fila")
         columna.setResizingMask_(1)                  # se estira con la ventana
+        columna.setMinWidth_(240.0)
+        columna.setWidth_(W)
         self.tabla.addTableColumn_(columna)
+        self.tabla.setColumnAutoresizingStyle_(1)    # la única columna ocupa el ancho
         self.tabla.setHeaderView_(None)
         self.tabla.setRowHeight_(FILA)
         self.tabla.setBackgroundColor_(NSColor.clearColor())
@@ -163,42 +194,41 @@ class Historial(NSObject):
 
     @objc.python_method
     def fila(self, ficha, ancho, indice):
-        v = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ancho, FILA))
+        v = Fila.alloc().initWithFrame_(NSMakeRect(0, 0, ancho, FILA))
         v.setAutoresizingMask_(2)
         ruta = biblioteca.ubicar(ficha)
-        x_icono = ancho - PAD - BOTON
-        x_boton = x_icono - 8 - ACCION
-        ancho_texto = x_boton - PAD - 46
 
         simbolo, color = (("checkmark.circle.fill", NSColor.systemGreenColor()) if ruta
                           else ("questionmark.circle.fill", NSColor.tertiaryLabelColor()))
         v.addSubview_(ui.icon_view(simbolo, NSMakeRect(PAD, 19, 20, 20), color, 15.0))
-        v.addSubview_(ui.label(ficha.get("nombre", ""), 13.0, ui.W_MEDIUM, NSColor.labelColor(),
-                               NSMakeRect(PAD + 30, 29, ancho_texto, 18), ui.ALIGN_LEFT,
-                               truncate=ui.TRUNC_MIDDLE))
-        v.addSubview_(ui.label(self.detalle(ficha, ruta), 11.0, ui.W_REGULAR,
-                               NSColor.systemOrangeColor() if ruta is None
-                               else NSColor.tertiaryLabelColor(),
-                               NSMakeRect(PAD + 30, 12, ancho_texto, 15), ui.ALIGN_LEFT,
-                               truncate=ui.TRUNC_TAIL))
+        v.titulo = ui.label(ficha.get("nombre", ""), 13.0, ui.W_MEDIUM, NSColor.labelColor(),
+                            NSMakeRect(PAD + 30, 29, 100, 18), ui.ALIGN_LEFT,
+                            truncate=ui.TRUNC_MIDDLE)
+        v.detalle = ui.label(self.detalle(ficha, ruta), 11.0, ui.W_REGULAR,
+                             NSColor.systemOrangeColor() if ruta is None
+                             else NSColor.tertiaryLabelColor(),
+                             NSMakeRect(PAD + 30, 12, 100, 15), ui.ALIGN_LEFT,
+                             truncate=ui.TRUNC_TAIL)
         if ruta is None:
-            v.addSubview_(ui.bezel_button("Ubicar…", NSMakeRect(x_boton, 19, ACCION, 24),
-                                          self, b"ubicar:", tag=indice))
-            v.addSubview_(ui.symbol_button("xmark.circle.fill",
-                                           NSMakeRect(x_icono, 23, BOTON, BOTON), self,
-                                           b"olvidar:", tag=indice, size=14.0,
-                                           tooltip="Quitar del historial",
-                                           tint=NSColor.tertiaryLabelColor()))
+            v.accion = ui.bezel_button("Ubicar…", NSMakeRect(0, 19, ACCION, 24),
+                                       self, b"ubicar:", tag=indice)
+            v.icono = ui.symbol_button("xmark.circle.fill",
+                                       NSMakeRect(0, 23, BOTON, BOTON), self,
+                                       b"olvidar:", tag=indice, size=14.0,
+                                       tooltip="Quitar del historial",
+                                       tint=NSColor.tertiaryLabelColor())
         else:
-            abrir = ui.bezel_button("Abrir", NSMakeRect(x_boton, 19, ACCION, 24),
-                                    self, b"abrir:", tag=indice)
-            abrir.setToolTip_(f"Ver, escuchar y corregir\n{ruta}")
-            v.addSubview_(abrir)
-            v.addSubview_(ui.symbol_button("folder.circle.fill",
-                                           NSMakeRect(x_icono, 23, BOTON, BOTON), self,
-                                           b"enFinder:", tag=indice, size=14.0,
-                                           tooltip=f"Mostrar en Finder\n{ruta}",
-                                           tint=NSColor.secondaryLabelColor()))
+            v.accion = ui.bezel_button("Abrir", NSMakeRect(0, 19, ACCION, 24),
+                                       self, b"abrir:", tag=indice)
+            v.accion.setToolTip_(f"Ver, escuchar y corregir\n{ruta}")
+            v.icono = ui.symbol_button("folder.circle.fill",
+                                       NSMakeRect(0, 23, BOTON, BOTON), self,
+                                       b"enFinder:", tag=indice, size=14.0,
+                                       tooltip=f"Mostrar en Finder\n{ruta}",
+                                       tint=NSColor.secondaryLabelColor())
+        for vista in (v.titulo, v.detalle, v.accion, v.icono):
+            v.addSubview_(vista)
+        v.colocar()
         return v
 
     @objc.python_method

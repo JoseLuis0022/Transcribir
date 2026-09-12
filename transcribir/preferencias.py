@@ -15,6 +15,7 @@ IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
 PERSONAS, TIEMPOS, RESALTADO = "personas", "tiempos", "resaltado"
 TAMANO, PANEL, FUERZA = "tamano_texto", "panel_editor", "fuerza_resaltado"
+CERRADOS = "apartados_cerrados"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
 AVISO_CADA, AVISO_COLA, AVISO_ERRORES, AVISO_SONIDO = (
     "avisos_cada_archivo", "avisos_cola", "avisos_errores", "avisos_sonido")
@@ -31,6 +32,7 @@ ESQUEMA = {
     FUERZA: ("fuerte", ("suave", "media", "fuerte")),
     TAMANO: ("15", ("13", "14", "15", "16", "17", "18", "20")),
     PANEL: (True, bool),
+    CERRADOS: ("", str),
     GUARDAR: ("carpeta", ("carpeta", "junto")),
     CARPETA: (str(ESCRITORIO), str),
     AL_TERMINAR: ("nada", ("nada", "finder", "abrir")),

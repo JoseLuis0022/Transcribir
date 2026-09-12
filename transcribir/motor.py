@@ -211,15 +211,14 @@ class Motor(threading.Thread):
         self._despachar(self._al_terminar, t.id, str(biblioteca.ubicar(ficha)),
                         ficha.get("duracion", 0.0), 0.0, ficha["id"])
 
-    def _procesar(self, t: Trabajo) -> None:
-        self._revisar(t.id)
-        if t.tarea in ("tiempos", "personas"):
-            return self._rehacer(t)
+    def _transcribir(self, t: Trabajo):
+        """El camino de siempre: escuchar, alinear, separar y componer el texto.
+
+        Devuelve (contenido, extensión, palabras, personas, duración)."""
         op = t.opciones
         por_persona = bool(op.get("personas"))
         con_tiempos = op["formato"] in ("tiempos", "srt") or por_persona or bool(op.get("tiempos"))
 
-        inicio = time.perf_counter()
         resultado, muestras, duracion = self._escuchar(t, con_tiempos)
 
         palabras = formatos.palabras_con_tiempo(resultado.text, resultado.segments or []) if con_tiempos else []
@@ -245,6 +244,37 @@ class Motor(threading.Thread):
             contenido, extension = formatos.en_parrafos(resultado.text), ".txt"
         if not contenido.strip():
             raise RuntimeError("No se detectó voz en el archivo")
+        return contenido, extension, palabras, personas, duracion
+
+    def _otra_vez(self, t: Trabajo) -> None:
+        """Rehace una transcripción que ya existe, con las pistas nuevas, y
+        sobrescribe el archivo del usuario en vez de crear otro."""
+        ficha = biblioteca.leer(t.opciones["ficha"])
+        if ficha is None or biblioteca.ubicar(ficha) is None:
+            raise RuntimeError("No se encontró la transcripción")
+        inicio = time.perf_counter()
+        contenido, _, palabras, personas, duracion = self._transcribir(t)
+        biblioteca.escribir_texto(ficha, contenido)
+        ficha.setdefault("ajustes", {})["vocabulario"] = t.opciones.get("vocabulario", "")
+        ficha["duracion"] = round(duracion, 2)
+        ficha["segundos"] = round(time.perf_counter() - inicio, 2)
+        ficha["cuantas_personas"] = len(set(personas)) if personas else 0
+        if personas:
+            ficha["personas"] = {}
+        biblioteca.guardar(ficha)
+        biblioteca.guardar_palabras(ficha["id"], palabras, personas) if palabras else None
+        self._despachar(self._al_terminar, t.id, str(biblioteca.ubicar(ficha)),
+                        duracion, ficha["segundos"], ficha["id"])
+
+    def _procesar(self, t: Trabajo) -> None:
+        self._revisar(t.id)
+        if t.tarea in ("tiempos", "personas"):
+            return self._rehacer(t)
+        if t.tarea == "otra_vez":
+            return self._otra_vez(t)
+        op = t.opciones
+        inicio = time.perf_counter()
+        contenido, extension, palabras, personas, duracion = self._transcribir(t)
 
         carpeta = Path(op["destino"])
         carpeta.mkdir(parents=True, exist_ok=True)
