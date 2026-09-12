@@ -14,6 +14,7 @@ ESCRITORIO = Path.home() / "Desktop"
 IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
 PERSONAS, TIEMPOS, RESALTADO = "personas", "tiempos", "resaltado"
+TAMANO = "tamano_texto"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
 AVISO_CADA, AVISO_COLA, AVISO_ERRORES, AVISO_SONIDO = (
     "avisos_cada_archivo", "avisos_cola", "avisos_errores", "avisos_sonido")
@@ -27,6 +28,7 @@ ESQUEMA = {
     PERSONAS: (False, bool),
     TIEMPOS: (False, bool),
     RESALTADO: ("palabra", ("palabra", "fondo")),
+    TAMANO: ("15", ("13", "14", "15", "16", "17", "18", "20")),
     GUARDAR: ("carpeta", ("carpeta", "junto")),
     CARPETA: (str(ESCRITORIO), str),
     AL_TERMINAR: ("nada", ("nada", "finder", "abrir")),
@@ -46,6 +48,7 @@ ETIQUETAS = {
     PRECISION: {"alta": "Máxima precisión (1.7B)", "rapida": "Rápida (0.6B)"},
     FORMATO: {"parrafos": "Párrafos", "tiempos": "Con marcas de tiempo", "srt": "Subtítulos (.srt)"},
     RESALTADO: {"palabra": "La palabra en negrita", "fondo": "Fondo suave"},
+    TAMANO: {t: f"{t} pt" for t in ("13", "14", "15", "16", "17", "18", "20")},
     GUARDAR: {"carpeta": "En la carpeta elegida", "junto": "Junto al archivo original"},
     AL_TERMINAR: {"nada": "No hacer nada", "finder": "Mostrar en Finder", "abrir": "Abrir la transcripción"},
 }

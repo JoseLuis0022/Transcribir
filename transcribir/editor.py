@@ -37,7 +37,7 @@ PEGADO_ARRIBA, PEGADO_ABAJO = 2 | 8, 2 | 32
 FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
-GRUESO = -4.0                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
+GRUESO = -5.2                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 
@@ -45,7 +45,7 @@ COLOR_RESALTE = NSColor.systemPurpleColor()
 INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
 JUSTIFICADO = 3
 CABECERA_NOMBRE, CABECERA_HORA, AIRE = 46.0, 26.0, 12.0
-LECTURA = 15.0                   # el cuerpo del texto
+TAMANOS = (13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 20.0)     # los del ajuste
 COLUMNA = 620.0                  # ancho máximo de lectura: más largo cansa la vista
 
 
@@ -182,6 +182,7 @@ class Editor(NSObject):
         self.resaltada, self.cambio = None, 0.0
         self.bloque_activo, self.anterior = None, None
         self.pintadas = {}                    # qué trozos están marcados ahora
+        self.lectura = float(pref.leer(pref.TAMANO))
         self.campo_nombre = None
         self.pastilla_oculta = None
         self.sucio = False
@@ -251,7 +252,7 @@ class Editor(NSObject):
         derecha, botones = ui.barra_iconos(
             [("square.and.arrow.up", b"menuExportar:", "Exportar a PDF o a Word"),
              ("folder", b"mostrarEnFinder:", "Mostrar en Finder"),
-             ("arrow.down.circle", b"guardarDocumento:", "Guardar los cambios (⌘S)")],
+             ("square.and.arrow.down", b"guardarDocumento:", "Guardar los cambios (⌘S)")],
             NSMakeRect(W - PAD - ancho_botones, arriba - 4, ancho_botones, lado), self)
         derecha.setAutoresizingMask_(8 | 1)          # pegado a la derecha y arriba
         barra.addSubview_(derecha)
@@ -383,7 +384,7 @@ class Editor(NSObject):
     def cargar(self, contenido):
         """Pone el texto en la ventana con el estilo de lectura y prepara el resaltado."""
         self.texto.setTypingAttributes_({
-            "NSFont": NSFont.systemFontOfSize_(LECTURA),
+            "NSFont": NSFont.systemFontOfSize_(self.lectura),
             "NSColor": NSColor.labelColor(),
             "NSParagraphStyle": parrafo(0.0)})
         self.texto.setString_(contenido)
@@ -423,7 +424,7 @@ class Editor(NSObject):
         self.bloque_activo, self.anterior = None, None
         almacen = self.texto.textStorage()
         almacen.beginEditing()
-        almacen.setAttributes_range_({"NSFont": NSFont.systemFontOfSize_(LECTURA),
+        almacen.setAttributes_range_({"NSFont": NSFont.systemFontOfSize_(self.lectura),
                                       "NSColor": NSColor.labelColor(),
                                       "NSParagraphStyle": parrafo(0.0)},
                                      NSMakeRange(0, almacen.length()))
@@ -458,6 +459,37 @@ class Editor(NSObject):
         self.ajustarColumna()
         self.texto.setNeedsDisplay_(True)
         self.ventana.invalidateCursorRectsForView_(self.texto)
+
+    def textoMasGrande_(self, sender):
+        self.cambiarTamano(+1)
+
+    def textoMasPequeno_(self, sender):
+        self.cambiarTamano(-1)
+
+    @objc.python_method
+    def cambiarTamano(self, paso):
+        """⌘+ y ⌘−: el tamaño se guarda, así que la próxima vez abre igual."""
+        cerca = min(TAMANOS, key=lambda x: abs(x - self.lectura))
+        i = min(max(TAMANOS.index(cerca) + paso, 0), len(TAMANOS) - 1)
+        if TAMANOS[i] == self.lectura:
+            return
+        self.lectura = TAMANOS[i]
+        pref.escribir(pref.TAMANO, str(int(self.lectura)))
+        donde = self.texto.selectedRange()
+        self.cargar(self.contenido()) if not self.sucio else self.repintarTexto()
+        self.texto.setSelectedRange_(donde)
+
+    @objc.python_method
+    def repintarTexto(self):
+        """Aplica el tamaño nuevo sin recargar el archivo (hay cambios sin guardar)."""
+        almacen = self.texto.textStorage()
+        almacen.beginEditing()
+        almacen.addAttribute_value_range_("NSFont", NSFont.systemFontOfSize_(self.lectura),
+                                          NSMakeRange(0, almacen.length()))
+        almacen.endEditing()
+        self.texto.setTypingAttributes_(dict(self.texto.typingAttributes(),
+                                             NSFont=NSFont.systemFontOfSize_(self.lectura)))
+        self.rehacerMapa()
 
     @objc.python_method
     def ajustarColumna(self):

@@ -104,6 +104,7 @@ class ControladorAjustes(NSObject):
             self.filaMenu("Al terminar", "Solo con lo que agregas tú", pref.AL_TERMINAR),
         ])
         y = self.seccion(doc, y, "EDITOR", [
+            self.filaMenu("Tamaño del texto", "También con ⌘+ y ⌘− en el editor", pref.TAMANO),
             self.filaMenu("Resaltado al reproducir",
                           "Cómo se marca la palabra que suena en el editor", pref.RESALTADO),
         ])

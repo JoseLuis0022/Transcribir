@@ -238,6 +238,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             None,
             ui.menu_item("Cerrar", b"performClose:", "w"),
         ])
+        submenu("Ver", [
+            ui.menu_item("Texto más grande", b"textoMasGrande:", "+"),
+            ui.menu_item("Texto más pequeño", b"textoMasPequeno:", "-"),
+        ])
         ventana = submenu("Ventana", [
             ui.menu_item("Minimizar", b"performMiniaturize:", "m"),
             None,
