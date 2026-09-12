@@ -105,7 +105,7 @@ class ControladorAjustes(NSObject):
         ])
         y = self.seccion(doc, y, "EDITOR", [
             self.filaMenu("Resaltado al reproducir",
-                          "Cómo se marca la palabra que suena", pref.RESALTADO),
+                          "Cómo se marca la palabra que suena en el editor", pref.RESALTADO),
         ])
         y = self.seccion(doc, y, "CARPETA VIGILADA", [
             self.filaInterruptor("Vigilar una carpeta",

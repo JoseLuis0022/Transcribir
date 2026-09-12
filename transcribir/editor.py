@@ -35,9 +35,7 @@ CMD, OPT = 1 << 20, 1 << 19      # teclas ⌘ y ⌥
 ANCHO_FLEX, ALTO_FLEX = 2, 16
 PEGADO_ARRIBA, PEGADO_ABAJO = 2 | 8, 2 | 32
 FONDO_TEMPORAL = "NSBackgroundColor"
-CRECE = 1.07                     # cuánto crece la palabra que suena
-SALIDA = 0.24                    # lo que tarda en apagarse la anterior
-PLUMA = 10.0                     # difuminado del borde que va descubriendo la palabra
+SALIDA = 0.3                     # lo que tarda en apagarse la palabra anterior
 
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
@@ -175,8 +173,9 @@ class Editor(NSObject):
         self.palabras = biblioteca.palabras(ficha["id"]) or []
         self.mapa, self.inicios = [], []      # [(inicio, fin, desde, hasta)] por palabra
         self.bloques = []                     # cada intervención: dónde, cuándo y de quién
-        self.resaltada, self.capa = None, None
+        self.resaltada, self.capa, self.capas = None, None, []
         self.campo_nombre = None
+        self.pastilla_oculta = None
         self.sucio = False
         self.arrastrando = False
         self.reproductor = None
@@ -519,7 +518,6 @@ class Editor(NSObject):
         campo.setTextColor_(color)
         campo.setStringValue_(actual)
         campo.setDelegate_(self)
-        campo.setToolTip_("Intro para guardarlo en todo el archivo · Esc para dejarlo como estaba")
         self.campo_nombre = (campo, str(numero))
         self.texto.setNeedsDisplay_(True)
         vista.addSubview_(campo)
@@ -533,6 +531,9 @@ class Editor(NSObject):
         self.campo_nombre = None
         campo.setDelegate_(None)
         campo.removeFromSuperview()
+        if getattr(self, "pastilla_oculta", None) is not None:
+            self.pastilla_oculta.setHidden_(False)
+            self.pastilla_oculta = None
         self.texto.setNeedsDisplay_(True)
         self.ventana.makeFirstResponder_(self.texto)
 
@@ -748,7 +749,7 @@ class Editor(NSObject):
 
     @objc.python_method
     def apagarResaltado(self):
-        """Deja la palabra anterior como estaba, sin cortes: se encoge y se apaga."""
+        """Deja la palabra anterior como estaba: se apaga poco a poco y su capa se va."""
         if self.resaltada is not None and self.resaltada < len(self.mapa):
             antes = self.mapa[self.resaltada]
             rango = NSMakeRange(antes[0], antes[1] - antes[0])
@@ -760,19 +761,31 @@ class Editor(NSObject):
         if capa is None:
             return
         capa.removeAllAnimations()
-        with ui.con_animaciones(SALIDA, al_acabar=capa.removeFromSuperlayer):
-            capa.addAnimation_forKey_(ui.suave("opacity", 1.0, 0.0, SALIDA), "apagar")
-            capa.addAnimation_forKey_(ui.suave("transform.scale", CRECE, 1.0, SALIDA), "encoger")
-            capa.setOpacity_(0.0)
-            capa.setAffineTransform_(ui.escala(1.0))
+        capa.setOpacity_(0.0)
+        capa.addAnimation_forKey_(ui.suave("opacity", 1.0, 0.0, SALIDA), "apagar")
+        # y fuera: si se quedaran puestas se irían apilando una encima de otra
+        self.performSelector_withObject_afterDelay_(b"limpiarCapas:", None, SALIDA + 0.05)
+
+    def limpiarCapas_(self, _):
+        """Quita las capas de palabras que ya no suenan (todas menos la de ahora)."""
+        for vieja in list(self.capas):
+            if vieja is not self.capa:
+                vieja.removeFromSuperlayer()
+                self.capas.remove(vieja)
 
     @objc.python_method
     def cantarPalabra(self, rango, restante, avance):
-        """La palabra que suena se va tiñendo de izquierda a derecha mientras dura,
-        y crece con un muelle, como las letras de Apple Music.
+        """La palabra que suena se pone en negrita de izquierda a derecha, como las
+        letras de Apple Music, pero sin crecer.
 
-        Va en una capa encima del texto: así el renglón no se mueve ni una décima,
-        que es lo que pasaría si se cambiara de verdad la letra del párrafo.
+        Crecer empujaría a la palabra siguiente: las guías de Apple piden que la
+        animación no desplace lo que se está leyendo. En Apple Music quien crece es
+        el renglón entero, no la palabra suelta.
+
+        Son dos copias de la palabra, la normal y la negrita, con máscaras que se
+        complementan: cada punto enseña una o la otra, nunca las dos, así que no se
+        ve doble. Van en una capa encima del texto para que el renglón no se mueva
+        ni una décima, que es lo que pasaría si se cambiara la letra de verdad.
         """
         gestor, contenedor = self.texto.layoutManager(), self.texto.textContainer()
         glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
@@ -782,49 +795,46 @@ class Editor(NSObject):
         if not palabra.strip() or marco.size.width <= 0:
             return
 
-        escala = self.ventana.backingScaleFactor() or 2.0
-        ancho, alto = marco.size.width + 4, marco.size.height + 2
+        nitidez = self.ventana.backingScaleFactor() or 2.0
+        # la caja empieza justo donde la palabra y sobra un poco a la derecha, que es
+        # lo que ocupa de más la negrita; así encaja sobre el texto sin moverlo
+        ancho, alto = marco.size.width + 12, marco.size.height + 2
         capa = ui.CALayer.layer()
         capa.setBounds_(NSMakeRect(0, 0, ancho, alto))
-        capa.setPosition_((marco.origin.x + origen.x + marco.size.width / 2,
+        capa.setAnchorPoint_((0.0, 0.5))
+        capa.setPosition_((marco.origin.x + origen.x,
                            marco.origin.y + origen.y + marco.size.height / 2))
-        capa.setAnchorPoint_((0.5, 0.5))
 
-        def letras(color, peso):
+        def letras(peso):
             letra = ui.CATextLayer.layer()
-            letra.setContentsScale_(escala)
-            letra.setString_(ui.attributed(palabra, 14.0, peso, color, ui.ALIGN_CENTER))
+            letra.setContentsScale_(nitidez)
+            letra.setAlignmentMode_("left")     # CATextLayer no hace caso al estilo del párrafo
+            letra.setString_(ui.attributed(palabra, 14.0, peso, NSColor.labelColor(), ui.ALIGN_LEFT))
             letra.setFrame_(NSMakeRect(0, 0, ancho, alto))
             return letra
 
-        # debajo, la palabra como estaba; encima, la teñida que se va descubriendo
-        capa.addSublayer_(letras(NSColor.labelColor(), ui.W_REGULAR))
-        cantada = letras(COLOR_RESALTE, ui.W_SEMIBOLD)
-        capa.addSublayer_(cantada)
+        antes, ahora = letras(ui.W_REGULAR), letras(ui.W_SEMIBOLD)
+        capa.addSublayer_(antes)
+        capa.addSublayer_(ahora)
 
-        # la máscara descubre la palabra según va sonando, con el borde difuminado
-        mascara = ui.CAGradientLayer.layer()
-        mascara.setColors_([NSColor.whiteColor().CGColor(),
-                            NSColor.whiteColor().CGColor(),
-                            NSColor.whiteColor().colorWithAlphaComponent_(0.0).CGColor()])
-        mascara.setLocations_([0.0, 0.78, 1.0])
-        mascara.setStartPoint_((0.0, 0.5))
-        mascara.setEndPoint_((1.0, 0.5))
-        mascara.setAnchorPoint_((0.0, 0.5))
-        mascara.setPosition_((0.0, alto / 2))
-        ancho_inicial = max(ancho * min(max(avance, 0.0), 1.0), 1.0)
-        mascara.setBounds_(NSMakeRect(0, 0, ancho + PLUMA, alto))
-        cantada.setMask_(mascara)
+        # una máscara descubre la negrita y la otra esconde la normal, a la vez
+        avance = min(max(avance, 0.0), 1.0)
+        antes.setMask_(ui.barrido(ancho, alto, 1.0, invertida=True))
+        mascara = ui.barrido(ancho, alto, 1.0)
+        ahora.setMask_(mascara)
 
-        # el hueco del texto se tapa: lo que se ve es la capa, que sí puede crecer
-        self.texto.layoutManager().addTemporaryAttributes_forCharacterRange_(
-            {"NSColor": NSColor.clearColor()}, rango)
+        # el texto de debajo se tapa: lo que se ve es la capa, que sí puede crecer
+        gestor.addTemporaryAttributes_forCharacterRange_({"NSColor": NSColor.clearColor()}, rango)
         self.texto.layer().addSublayer_(capa)
-        capa.addAnimation_forKey_(ui.muelle("transform.scale", 1.0, CRECE), "crecer")
-        mascara.addAnimation_forKey_(
-            ui.suave("bounds.size.width", ancho_inicial, ancho + PLUMA,
-                     max(restante, 0.12), "linear"), "cantar")
         self.capa = capa
+        self.capas.append(capa)
+        if ui.poca_animacion():
+            return                     # accesibilidad: sin barrido, la negrita y ya
+        capa.addAnimation_forKey_(ui.suave("opacity", 0.4, 1.0, 0.18), "aparecer")
+        for mascarita in (antes.mask(), mascara):
+            mascarita.addAnimation_forKey_(
+                ui.suave("locations", ui.paradas(avance), ui.paradas(1.0),
+                         max(restante, 0.16), "linear"), "cantar")
 
     # -------------------------------------------------------------- acciones --
     def reproducir_(self, sender):
@@ -880,11 +890,13 @@ class Editor(NSObject):
     # --------------------------------------------------------------- personas --
     def renombrarPersona_(self, sender):
         marco = sender.frame()
+        self.pastilla_oculta = sender          # la pastilla se aparta: el campo ocupa su sitio
+        sender.setHidden_(True)
         self.campoNombre(sender.tag(),
                          ui.COLORES_PERSONA[(sender.tag() - 1) % len(ui.COLORES_PERSONA)],
                          self.fila_personas,
-                         NSMakeRect(marco.origin.x, marco.origin.y - 1, max(marco.size.width + 60, 150), 24),
-                         11.5)
+                         NSMakeRect(marco.origin.x, marco.origin.y - 1,
+                                    max(marco.size.width + 60, 150), 24), 11.5)
 
     @objc.python_method
     def renombrarPersonas(self, nombres):

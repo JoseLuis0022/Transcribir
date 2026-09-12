@@ -45,7 +45,7 @@ ETIQUETAS = {
     IDIOMA: {"es": "Español", "en": "Inglés", "auto": "Detectar automáticamente"},
     PRECISION: {"alta": "Máxima precisión (1.7B)", "rapida": "Rápida (0.6B)"},
     FORMATO: {"parrafos": "Párrafos", "tiempos": "Con marcas de tiempo", "srt": "Subtítulos (.srt)"},
-    RESALTADO: {"palabra": "La palabra crece", "fondo": "Fondo suave"},
+    RESALTADO: {"palabra": "La palabra en negrita", "fondo": "Fondo suave"},
     GUARDAR: {"carpeta": "En la carpeta elegida", "junto": "Junto al archivo original"},
     AL_TERMINAR: {"nada": "No hacer nada", "finder": "Mostrar en Finder", "abrir": "Abrir la transcripción"},
 }

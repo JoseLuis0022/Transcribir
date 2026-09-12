@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
 
 from AppKit import (  # noqa: E402
     NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenuItem, NSMutableParagraphStyle,
-    NSPopUpButton, NSTextField, NSView,
+    NSPopUpButton, NSTextField, NSView, NSWorkspace,
 )
 from Foundation import NSAttributedString, NSMakeRect  # noqa: E402
 
@@ -29,6 +29,7 @@ IMG_SCALE_PROPORTIONAL = 3
 IMAGE_ONLY = 1
 BLEND_BEHIND_WINDOW, VFX_ACTIVE, MATERIAL_UNDER_WINDOW = 0, 1, 21
 W_REGULAR, W_MEDIUM, W_SEMIBOLD = 0.0, 0.23, 0.3
+PLUMA_BARRIDO = 0.06      # lo difuminado que va el borde del barrido
 TRUNC_TAIL, TRUNC_MIDDLE = 4, 5
 
 CAGradientLayer = objc.lookUpClass("CAGradientLayer")
@@ -278,6 +279,40 @@ def menu_item(title, action, key, target=None, modifiers=None):
     if modifiers is not None:
         it.setKeyEquivalentModifierMask_(modifiers)
     return it
+
+
+def poca_animacion() -> bool:
+    """True si el usuario pidió reducir el movimiento en Accesibilidad."""
+    try:
+        return bool(NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion())
+    except Exception:
+        return False
+
+
+def paradas(avance):
+    """Dónde está el borde del barrido: antes de `avance` una cosa, después la otra."""
+    borde = min(max(avance, 0.0), 1.0)
+    if borde > 0.995:                      # ya está toda: sin degradado que la apague al final
+        return [0.0, 1.0, 1.0, 1.0]
+    return [0.0, max(borde - PLUMA_BARRIDO, 0.0), min(borde + PLUMA_BARRIDO, 1.0), 1.0]
+
+
+def barrido(ancho, alto, avance, invertida=False):
+    """Máscara que recorre la palabra de izquierda a derecha con el borde difuminado.
+
+    La normal descubre; la invertida esconde. Las dos juntas se reparten la palabra
+    sin solaparse, que es lo que evita que se vea doble.
+    """
+    blanco = NSColor.whiteColor()
+    opaco, claro = blanco.CGColor(), blanco.colorWithAlphaComponent_(0.0).CGColor()
+    lados = [claro, claro, opaco, opaco] if invertida else [opaco, opaco, claro, claro]
+    m = CAGradientLayer.layer()
+    m.setColors_(lados)
+    m.setLocations_(paradas(avance))
+    m.setStartPoint_((0.0, 0.5))
+    m.setEndPoint_((1.0, 0.5))
+    m.setFrame_(NSMakeRect(0, 0, ancho, alto))
+    return m
 
 
 def escala(factor):
