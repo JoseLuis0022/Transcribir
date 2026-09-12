@@ -68,7 +68,11 @@ class Vigia:
         if self.carpeta is None or not self.carpeta.is_dir():
             return []
         if not carpetas.hay_que_hondear(self.carpeta):
-            return [p for p in self.carpeta.iterdir()
+            try:
+                hijos = list(self.carpeta.iterdir())
+            except OSError:              # macOS puede no dejar leer ahí
+                return []
+            return [p for p in hijos
                     if p.is_file() and not p.name.startswith(".")
                     and p.suffix.lower() in EXTENSIONES]
         salida = []

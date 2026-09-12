@@ -199,7 +199,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, visible):
         if not visible:
-            self.ventana.makeKeyAndOrderFront_(None)
+            self.mostrarVentana_(None)
         return True
 
     def applicationShouldTerminate_(self, app):
@@ -317,6 +317,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             rect, ui.STYLE_TITLED | ui.STYLE_CLOSABLE | ui.STYLE_MINI | ui.STYLE_FULL_CONTENT,
             NSBackingStoreBuffered, False)
         self.ventana.setTitle_("Transcribir")
+        # cerrarla no la destruye: la app sigue viva y hay que poder volver a abrirla
+        self.ventana.setReleasedWhenClosed_(False)
         self.ventana.setTitleVisibility_(1)
         self.ventana.setTitlebarAppearsTransparent_(True)
         self.ventana.setMovableByWindowBackground_(True)
@@ -1014,12 +1016,50 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             self.ventana_ajustes.sincronizar()
 
     @objc.python_method
+    def puedeLeer(self, carpeta) -> bool:
+        try:
+            next(iter(Path(carpeta).iterdir()), None)
+            return True
+        except OSError:
+            return False
+
+    @objc.python_method
+    def pedirAcceso(self, carpeta):
+        """Las carpetas de Apple están protegidas: el permiso lo da elegirlas aquí.
+
+        macOS se fía de lo que el usuario elige en el panel de archivos, así que
+        se le abre ya puesto en esa carpeta y basta con darle a «Dar acceso».
+        """
+        nombre = carpetas.como_se_llama(carpeta)
+        if self.alerta(f"Hay que darle acceso a {nombre}",
+                       f"macOS protege esa carpeta. En la ventana que sale a continuación, "
+                       f"deja «{Path(carpeta).name}» elegida y pulsa «Dar acceso».",
+                       ["Continuar", "Ahora no"]) != 1000:
+            return False
+        panel = NSOpenPanel.openPanel()
+        panel.setCanChooseFiles_(False)
+        panel.setCanChooseDirectories_(True)
+        panel.setAllowsMultipleSelection_(False)
+        panel.setDirectoryURL_(NSURL.fileURLWithPath_(str(carpeta)))
+        panel.setMessage_(f"Dale acceso a Transcribir a {nombre}")
+        panel.setPrompt_("Dar acceso")
+        if panel.runModal() != 1:
+            return False
+        return self.puedeLeer(carpeta)
+
+    @objc.python_method
     def empezarAVigilar(self, carpeta):
         """Enciende la vigilancia y pregunta qué hacer con lo que ya está ahí dentro.
 
         Vigilar significa «lo que llegue a partir de ahora», pero una carpeta como
         la de Notas de Voz llega llena: hay que decir si se transcribe también.
         """
+        if not self.puedeLeer(carpeta) and not self.pedirAcceso(carpeta):
+            self.alerta("Sin acceso a esa carpeta",
+                        "Transcribir no puede mirar ahí, así que no puede vigilarla.\n"
+                        "También puedes dárselo en Ajustes del Sistema › Privacidad y "
+                        "seguridad › Acceso total al disco.", ["Aceptar"])
+            return 0
         pref.escribir(pref.CARPETA_VIGILADA, str(carpeta))
         pref.escribir(pref.VIGILAR, True)
         self.configurarVigia(rebaselinar=True)     # lo que ya hay no se toma solo
@@ -1318,6 +1358,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             self.alCambiarAjuste(pref.CARPETA)
 
     def mostrarVentana_(self, sender):
+        """Trae la ventana, venga de donde venga: cerrada, detrás o en el Dock."""
+        if self.ventana.isMiniaturized():      # del Dock no la saca «traer al frente»
+            self.ventana.deminiaturize_(None)
         self.ventana.makeKeyAndOrderFront_(None)
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
