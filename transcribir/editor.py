@@ -345,6 +345,11 @@ class Editor(NSObject):
         self.item_panel.animator().setCollapsed_(not self.item_panel.isCollapsed())
 
     @objc.python_method
+    def colorDe(self, numero, orden=0):
+        """El color de esa persona: el que elegiste, o el que le tocó por orden."""
+        return ui.color_persona((self.ficha.get("colores") or {}).get(str(numero)), orden)
+
+    @objc.python_method
     def personas(self):
         """Los números de persona que aparecen en el texto, en orden."""
         cuantas = int(self.ficha.get("cuantas_personas") or 0)
@@ -406,19 +411,26 @@ class Editor(NSObject):
         if quienes:
             titulo("PERSONAS", "person.2.fill", primero=True)
             for i, numero in enumerate(quienes):
-                color = ui.COLORES_PERSONA[i % len(ui.COLORES_PERSONA)]
+                color = self.colorDe(numero, i)
                 fila = NSView.alloc().initWithFrame_(NSMakeRect(margen, y[0], util, 24))
                 caja.addSubview_(fila)
-                fila.addSubview_(ui.rounded(NSMakeRect(0, 7, 10, 10), 5.0, fill=color,
-                                            clase=ui.Decorativa))
+                punto = NSButton.alloc().initWithFrame_(NSMakeRect(-4, 3, 18, 18))
+                punto.setBordered_(False)
+                punto.setTitle_("")
+                punto.setImage_(ui.circulo_color(color, 11.0))
+                punto.setTarget_(self)
+                punto.setAction_(b"menuColor:")
+                punto.setTag_(int(numero))
+                punto.setToolTip_("Cambiar el color de esta persona")
+                fila.addSubview_(punto)
                 fila.addSubview_(ui.label((nombres.get(numero) or "").strip() or f"Persona {numero}",
                                           13.0, ui.W_REGULAR, NSColor.labelColor(),
-                                          NSMakeRect(20, 3, util - 44, 17), ui.ALIGN_LEFT,
+                                          NSMakeRect(22, 3, util - 46, 17), ui.ALIGN_LEFT,
                                           truncate=ui.TRUNC_TAIL))
                 fila.addSubview_(ui.etiqueta_cifras(numero, 11.0, NSColor.tertiaryLabelColor(),
                                                     NSMakeRect(util - 20, 3, 20, 16),
                                                     ui.ALIGN_RIGHT))
-                boton = NSButton.alloc().initWithFrame_(NSMakeRect(margen, y[0], util, 24))
+                boton = NSButton.alloc().initWithFrame_(NSMakeRect(margen + 22, y[0], util - 22, 24))
                 boton.setBordered_(False)
                 boton.setTitle_("")
                 boton.setTarget_(self)
@@ -654,7 +666,7 @@ class Editor(NSObject):
             largo, numero = self._quien(linea, nombres)
             bloque = Bloque(posicion, fin, desde, hasta, numero,
                             linea[:largo].rstrip(": ") if largo else "",
-                            colores[(int(numero) - 1) % len(colores)] if numero
+                            self.colorDe(numero, int(numero) - 1) if numero
                             else NSColor.secondaryLabelColor(),
                             tamano=self.lectura + 3,
                             texto=posicion + min(largo + 1, fin - posicion))
@@ -1225,8 +1237,12 @@ class Editor(NSObject):
             glifos = gestor.glyphRangeForCharacterRange_actualCharacterRange_(rango, None)[0]
             marco = gestor.boundingRectForGlyphRange_inTextContainer_(glifos, cont)
             origen = self.texto.textContainerOrigin()
-            self.destino = (marco.origin.x + origen.x - 4, marco.origin.y + origen.y,
-                            marco.size.width + 8, marco.size.height)
+            # a la medida de la letra, no del renglón entero: si no, la pastilla
+            # queda alta y se mete en el hueco de la palabra de al lado
+            alto = self.lectura + 8
+            self.destino = (marco.origin.x + origen.x - 3,
+                            marco.origin.y + origen.y + (marco.size.height - alto) / 2 + 1,
+                            marco.size.width + 6, alto)
             if self.sonando():
                 self.texto.scrollRangeToVisible_(rango)
             bloque = self.bloqueDe(inicio)
@@ -1361,6 +1377,25 @@ class Editor(NSObject):
             [NSURL.fileURLWithPath_(str(destino))])
 
     # --------------------------------------------------------------- personas --
+    def menuColor_(self, sender):
+        """El punto de color abre la paleta."""
+        self.color_de = str(sender.tag())
+        opciones = [nombre for _, nombre, _ in ui.PALETA]
+        ui.desplegar_menu(sender, opciones, self, b"elegirColor:", ui.PALETA)
+
+    def elegirColor_(self, sender):
+        numero = getattr(self, "color_de", None)
+        if numero is None or sender.tag() >= len(ui.PALETA):
+            return
+        colores = dict(self.ficha.get("colores") or {})
+        colores[numero] = ui.PALETA[sender.tag()][0]
+        self.ficha["colores"] = colores
+        biblioteca.guardar(self.ficha)
+        self.rehacerMapa()
+        self.pintarPanel()
+        self.texto.setNeedsDisplay_(True)
+        self.dueno.alGuardarFicha(self.ficha)
+
     def renombrarPrimera_(self, sender):
         """Desde el menú: pone nombre a la primera persona que quede sin él."""
         pendientes = [n for n in self.personas()
@@ -1375,7 +1410,7 @@ class Editor(NSObject):
         fila = self.filas_persona.get(numero)
         marco = sender.frame()
         self.campoNombre(sender.tag(),
-                         ui.COLORES_PERSONA[(sender.tag() - 1) % len(ui.COLORES_PERSONA)],
+                         self.colorDe(sender.tag(), sender.tag() - 1),
                          self.dentro_panel,
                          NSMakeRect(marco.origin.x, marco.origin.y, marco.size.width, 28), 12.5)
         if fila is not None and self.campo_nombre is not None:

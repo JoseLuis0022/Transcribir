@@ -11,7 +11,7 @@ import Quartz  # noqa: F401
 warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
 
 from AppKit import (  # noqa: E402
-    NSAnimationContext, NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
+    NSAnimationContext, NSBezierPath, NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
     NSMutableParagraphStyle, NSPopUpButton, NSProgressIndicator, NSSearchField, NSTextField,
     NSView,
     NSVisualEffectView, NSWorkspace,
@@ -58,13 +58,60 @@ class Decorativa(NSView):
         return None
 
 
-def colores_persona():
-    """Un color por persona, en el orden en que aparecen. Los mismos en toda la app."""
-    return [NSColor.systemPurpleColor(), NSColor.systemTealColor(), NSColor.systemOrangeColor(),
-            NSColor.systemPinkColor(), NSColor.systemIndigoColor(), NSColor.systemGreenColor()]
+def _sistema(nombre, respaldo):
+    """El color del sistema si existe en este macOS; si no, uno parecido."""
+    metodo = getattr(NSColor, f"system{nombre}Color", None)
+    if metodo is None:
+        r, g, b = respaldo
+        return NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
+    return metodo()
 
 
-COLORES_PERSONA = colores_persona()
+def paleta():
+    """Los colores que se pueden dar a quien habla. Son los del sistema, así que
+    se ven bien en claro y en oscuro."""
+    return [
+        ("morado", "Morado", _sistema("Purple", (0.69, 0.32, 0.87))),
+        ("azul", "Azul", _sistema("Blue", (0.0, 0.48, 1.0))),
+        ("cian", "Cian", _sistema("Cyan", (0.35, 0.78, 0.98))),
+        ("verdeazul", "Verde azulado", _sistema("Teal", (0.19, 0.69, 0.78))),
+        ("menta", "Menta", _sistema("Mint", (0.0, 0.78, 0.75))),
+        ("verde", "Verde", _sistema("Green", (0.20, 0.78, 0.35))),
+        ("lima", "Lima", _sistema("NoHay", (0.64, 0.82, 0.20))),
+        ("amarillo", "Amarillo", _sistema("Yellow", (1.0, 0.80, 0.0))),
+        ("naranja", "Naranja", _sistema("Orange", (1.0, 0.58, 0.0))),
+        ("coral", "Coral", _sistema("NoHay", (1.0, 0.45, 0.35))),
+        ("rojo", "Rojo", _sistema("Red", (1.0, 0.23, 0.19))),
+        ("rosa", "Rosa", _sistema("Pink", (1.0, 0.18, 0.33))),
+        ("magenta", "Magenta", _sistema("NoHay", (0.85, 0.22, 0.62))),
+        ("indigo", "Índigo", _sistema("Indigo", (0.35, 0.34, 0.84))),
+        ("marron", "Marrón", _sistema("Brown", (0.64, 0.52, 0.37))),
+        ("gris", "Gris", _sistema("Gray", (0.56, 0.56, 0.58))),
+    ]
+
+
+PALETA = paleta()
+POR_CLAVE = {clave: color for clave, _, color in PALETA}
+# el orden en que se reparten cuando no has elegido ninguno
+REPARTO = ["morado", "cian", "naranja", "verde", "rosa", "indigo", "amarillo", "verdeazul"]
+COLORES_PERSONA = [POR_CLAVE[c] for c in REPARTO]
+
+
+def color_persona(clave=None, orden=0):
+    """El color elegido para esa persona, o el que le toca por orden."""
+    if clave and clave in POR_CLAVE:
+        return POR_CLAVE[clave]
+    return COLORES_PERSONA[orden % len(COLORES_PERSONA)]
+
+
+def circulo_color(color, lado=12.0):
+    """Un punto de color, para los menús y las listas."""
+    img = NSImage.alloc().initWithSize_((lado, lado))
+    img.lockFocus()
+    color.setFill()
+    NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(0.5, 0.5, lado - 1, lado - 1)).fill()
+    img.unlockFocus()
+    return img
 
 
 def sf(name, size, weight=W_MEDIUM):
@@ -316,13 +363,15 @@ def barra_iconos(simbolos, frame, target, tamano=15.0):
     return v, botones
 
 
-def desplegar_menu(boton, opciones, target, accion):
-    """Saca un menú justo debajo de un botón de icono."""
+def desplegar_menu(boton, opciones, target, accion, colores=None):
+    """Saca un menú justo debajo de un botón. Con `colores`, cada línea lleva su punto."""
     menu = NSMenu.alloc().init()
     for i, titulo in enumerate(opciones):
         it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(titulo, accion, "")
         it.setTarget_(target)
         it.setTag_(i)
+        if colores is not None and i < len(colores):
+            it.setImage_(circulo_color(colores[i][2], 12.0))
         menu.addItem_(it)
     menu.popUpMenuPositioningItem_atLocation_inView_(
         None, NSMakePoint(0, boton.frame().size.height + 4), boton)
