@@ -191,6 +191,20 @@ def cifras(text, size, color, weight=W_MEDIUM):
                "NSColor": color, "NSParagraphStyle": para})
 
 
+def etiqueta_cifras(text, size, color, frame, align=ALIGN_LEFT):
+    """Un texto de solo números, con las cifras de ancho fijo."""
+    f = NSTextField.alloc().initWithFrame_(frame)
+    f.setBezeled_(False)
+    f.setDrawsBackground_(False)
+    f.setEditable_(False)
+    f.setSelectable_(False)
+    f.setAlignment_(align)
+    f.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(size, W_REGULAR))
+    f.setTextColor_(color)
+    f.setStringValue_(text)
+    return f
+
+
 def bezel_button(title, frame, target, action, tag=0, size=12.0):
     b = NSButton.alloc().initWithFrame_(frame)
     b.setBezelStyle_(1)
