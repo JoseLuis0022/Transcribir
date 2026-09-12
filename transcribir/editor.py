@@ -47,7 +47,7 @@ GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
 INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
-CABECERA_NOMBRE, CABECERA_HORA, AIRE = 30.0, 30.0, 40.0
+AIRE = 40.0
 TAMANOS = (12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0)     # los del ajuste
 COLUMNA = 540.0                  # ~70 caracteres por línea, que es lo cómodo de leer
 
@@ -73,18 +73,27 @@ def parrafo(cabecera: float):
 
 
 class Bloque:
-    """Una intervención: dónde está en el archivo, cuándo suena y quién habla."""
+    """Una intervención: dónde está en el archivo, cuándo suena y quién habla.
 
-    def __init__(self, inicio, fin, desde, hasta, numero, nombre, color):
+    `tamano` es el del nombre, que va atado al del texto: quien habla siempre se
+    lee un punto más grande que lo que dice.
+    """
+
+    def __init__(self, inicio, fin, desde, hasta, numero, nombre, color, tamano=15.0):
         self.inicio, self.fin = inicio, fin
         self.desde, self.hasta = desde, hasta
         self.numero, self.nombre, self.color = numero, nombre, color
+        self.tamano = tamano
+
+    @property
+    def hora_tamano(self) -> float:
+        return max(self.tamano - 6.0, 10.0)
 
     @property
     def cabecera(self) -> float:
         if self.nombre:
-            return CABECERA_NOMBRE
-        return CABECERA_HORA if self.desde is not None else AIRE
+            return self.tamano + 16.0
+        return self.tamano + 14.0 if self.desde is not None else AIRE
 
     @property
     def cuando(self) -> str:
@@ -122,16 +131,18 @@ class VistaTexto(NSTextView):
                 continue
             izquierda = self.textContainerOrigin().x
             ancho = self.bounds().size.width - izquierda
-            alto = y - 24                     # el renglón de la cabecera, encima del párrafo
+            # el renglón de la cabecera, encima del párrafo
+            alto = y - bloque.tamano - 8
             x = izquierda
             if bloque.nombre and bloque.numero != dueno.editando():
-                nombre = ui.attributed(bloque.nombre, 14.0, ui.W_SEMIBOLD, bloque.color,
+                nombre = ui.attributed(bloque.nombre, bloque.tamano, ui.W_SEMIBOLD, bloque.color,
                                        ui.ALIGN_LEFT)
-                nombre.drawInRect_(NSMakeRect(x, alto - 2, ancho, 18))
+                nombre.drawInRect_(NSMakeRect(x, alto, ancho, bloque.tamano + 5))
                 x += nombre.size().width + 9
             if bloque.cuando:
-                ui.cifras(bloque.cuando, 11.0, NSColor.tertiaryLabelColor(),
-                          ui.W_REGULAR).drawInRect_(NSMakeRect(x, alto + 1, ancho - x, 15))
+                ui.cifras(bloque.cuando, bloque.hora_tamano, NSColor.tertiaryLabelColor(),
+                          ui.W_REGULAR).drawInRect_(
+                    NSMakeRect(x, alto + 3, ancho - x, bloque.hora_tamano + 4))
 
     def mouseDown_(self, evento):
         punto = self.convertPoint_fromView_(evento.locationInWindow(), None)
@@ -585,7 +596,8 @@ class Editor(NSObject):
             bloque = Bloque(posicion, fin, desde, hasta, numero,
                             linea[:largo].rstrip(": ") if largo else "",
                             colores[(int(numero) - 1) % len(colores)] if numero
-                            else NSColor.secondaryLabelColor())
+                            else NSColor.secondaryLabelColor(),
+                            tamano=self.lectura + 3)
             self.bloques.append(bloque)
             if largo:                            # el «Ana:» se dibuja arriba, no en la línea
                 almacen.addAttributes_range_({"NSFont": INVISIBLE, "NSColor": NSColor.clearColor()},
@@ -599,6 +611,18 @@ class Editor(NSObject):
         self.ajustarColumna()
         self.texto.setNeedsDisplay_(True)
         self.ventana.invalidateCursorRectsForView_(self.texto)
+
+    def cambiarResaltado_(self, sender):
+        """Menú Ver: la palabra en negrita (como Apple Music) o un fondo suave."""
+        self.apagarResaltado()
+        pref.escribir(pref.RESALTADO, "palabra" if sender.tag() == 0 else "fondo")
+
+    def validateMenuItem_(self, item):
+        """La palomita del menú marca cuál de los dos resaltados está puesto."""
+        if item.action() == b"cambiarResaltado:":
+            puesto = pref.leer(pref.RESALTADO) == ("palabra" if item.tag() == 0 else "fondo")
+            item.setState_(1 if puesto else 0)
+        return True
 
     def textoMasGrande_(self, sender):
         self.cambiarTamano(+1)
@@ -661,7 +685,8 @@ class Editor(NSObject):
 
     @objc.python_method
     def anchoNombre(self, bloque):
-        return ui.attributed(bloque.nombre, 14.0, ui.W_SEMIBOLD, bloque.color).size().width + 10
+        return ui.attributed(bloque.nombre, bloque.tamano, ui.W_SEMIBOLD,
+                             bloque.color).size().width + 10
 
     @objc.python_method
     def zonaCabecera(self, punto):
@@ -673,7 +698,7 @@ class Editor(NSObject):
             if y is None or not (y - bloque.cabecera <= punto.y <= y - 3):
                 continue
             izquierda = self.texto.textContainerOrigin().x
-            if bloque.nombre and punto.y <= y - bloque.cabecera + 20 \
+            if bloque.nombre and punto.y <= y - bloque.cabecera + bloque.tamano + 6 \
                     and izquierda <= punto.x <= izquierda + self.anchoNombre(bloque):
                 return bloque, "nombre"
             if bloque.desde is not None and izquierda <= punto.x <= izquierda + 120:
@@ -698,7 +723,8 @@ class Editor(NSObject):
             return
         self.campoNombre(bloque.numero, bloque.color, self.texto,
                          NSMakeRect(self.texto.textContainerOrigin().x - 3, y - bloque.cabecera,
-                                    max(self.anchoNombre(bloque) + 40, 160), 22), 13.5)
+                                    max(self.anchoNombre(bloque) + 40, 160),
+                                    bloque.tamano + 8), bloque.tamano)
 
     @objc.python_method
     def campoNombre(self, numero, color, vista, marco, tamano):
