@@ -41,7 +41,7 @@ INSPECTOR = "NSToolbarToggleInspectorItem"
 FONDO_TEMPORAL = "NSBackgroundColor"
 ANTICIPO = 0.10                  # la siguiente entra antes de que acabe la anterior
 SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención anterior
-GRUESO = -5.2                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
+GRUESO = -8.3                    # cuánto engorda el trazo (no cambia el ancho: no mueve el texto)
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 
