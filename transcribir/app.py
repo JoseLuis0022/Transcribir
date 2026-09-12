@@ -189,7 +189,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         app.replyToOpenOrPrint_(0)
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
-        return True
+        # con trabajo pendiente la app se queda en la barra de menús, trabajando;
+        # cerrar la ventana no puede costar la cola
+        return not self.cola
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, visible):
         if not visible:
@@ -203,7 +205,10 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             "Hay archivos en cola",
             "Si sales ahora se detiene la transcripción en curso y se pierde la cola.",
             ["Salir", "Cancelar"])
-        return 1 if eleccion == 1000 else 0
+        if eleccion == 1000:
+            return 1
+        self.mostrarVentana_(None)          # cancelar no puede dejar la app sin ventana
+        return 0
 
     def applicationWillTerminate_(self, notification):
         if self.estado is not None:
@@ -1019,15 +1024,25 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         if not pendientes:
             return 0
         cuantas = len(pendientes)
-        nombre = carpetas.como_se_llama(carpeta)
-        respuesta = self.alerta(
-            f"{nombre} ya tiene {plural(cuantas, 'grabación', 'grabaciones')} sin transcribir",
+        aviso = NSAlert.alloc().init()
+        aviso.setMessageText_(f"{carpetas.como_se_llama(carpeta)} ya tiene "
+                              f"{plural(cuantas, 'grabación', 'grabaciones')} sin transcribir")
+        aviso.setInformativeText_(
             "A partir de ahora se transcribe sola cada grabación nueva.\n"
-            "Las que ya están también se pueden transcribir, pero tardará un buen rato.",
-            [f"Transcribir {'la' if cuantas == 1 else 'las'} {cuantas}", "Solo las nuevas"])
-        if respuesta != 1000:
-            return 0
-        self.encolar(pendientes)
+            "Las que ya están también se pueden transcribir, pero tardará un buen rato.")
+        aviso.addButtonWithTitle_(f"Transcribir {'la' if cuantas == 1 else 'las'} {cuantas}")
+        aviso.addButtonWithTitle_("Solo las nuevas")
+
+        def responder(codigo):
+            if codigo == 1000:
+                self.encolar(pendientes)
+
+        # como hoja de la ventana desde la que se pidió: así no se puede pasar por alto
+        ajustes = getattr(self.ventana_ajustes, "ventana", None) if self.ventana_ajustes else None
+        ventana = ajustes if ajustes is not None and ajustes.isVisible() else self.ventana
+        ventana.makeKeyAndOrderFront_(None)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        aviso.beginSheetModalForWindow_completionHandler_(ventana, responder)
         return cuantas
 
     @objc.python_method
@@ -1509,6 +1524,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 
     @objc.python_method
     def alerta(self, titulo, texto, botones):
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         a = NSAlert.alloc().init()
         a.setMessageText_(titulo)
         a.setInformativeText_(texto)
