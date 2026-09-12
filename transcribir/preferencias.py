@@ -15,7 +15,7 @@ IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
 PERSONAS, TIEMPOS, RESALTADO = "personas", "tiempos", "resaltado"
 CUANTAS = "cuantas_personas"
-TAMANO, PANEL, FUERZA = "tamano_texto", "panel_editor", "fuerza_resaltado"
+TAMANO, PANEL = "tamano_texto", "panel_editor"
 CERRADOS = "apartados_cerrados"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
 AVISO_CADA, AVISO_COLA, AVISO_ERRORES, AVISO_SONIDO = (
@@ -31,7 +31,6 @@ ESQUEMA = {
     CUANTAS: ("auto", ("auto", "2", "3", "4", "5", "6", "7", "8", "9", "10")),
     TIEMPOS: (False, bool),
     RESALTADO: ("palabra", ("palabra", "fondo")),
-    FUERZA: ("fuerte", ("suave", "media", "fuerte")),
     TAMANO: ("15", ("13", "14", "15", "16", "17", "18", "20")),
     PANEL: (True, bool),
     CERRADOS: ("", str),
@@ -57,7 +56,6 @@ ETIQUETAS = {
     CUANTAS: dict({"auto": "Que lo decida la app"},
                   **{str(n): f"{n} personas" for n in range(2, 11)}),
     RESALTADO: {"palabra": "La palabra en negrita", "fondo": "Fondo suave"},
-    FUERZA: {"suave": "Suave", "media": "Media", "fuerte": "Fuerte"},
     TAMANO: {t: f"{t} pt" for t in ("13", "14", "15", "16", "17", "18", "20")},
     GUARDAR: {"carpeta": "En la carpeta elegida", "junto": "Junto al archivo original"},
     AL_TERMINAR: {"nada": "No hacer nada", "finder": "Mostrar en Finder", "abrir": "Abrir la transcripción"},

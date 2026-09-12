@@ -268,10 +268,6 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             ui.submenu_item("Resaltado al reproducir", [
                 ui.menu_item("La palabra en negrita", b"cambiarResaltado:", "", tag=0),
                 ui.menu_item("Un fondo suave", b"cambiarResaltado:", "", tag=1),
-                None,
-                ui.menu_item("Marcado suave", b"cambiarFuerza:", "", tag=0),
-                ui.menu_item("Marcado medio", b"cambiarFuerza:", "", tag=1),
-                ui.menu_item("Marcado fuerte", b"cambiarFuerza:", "", tag=2),
             ]),
         ])
         submenu("Transcripción", [

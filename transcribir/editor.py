@@ -54,7 +54,7 @@ SOLTAR_BLOQUE = 0.55             # lo que tarda en apagarse la intervención ant
 # cuánto engorda el trazo de la palabra dicha; es un porcentaje del tamaño de la
 # letra, así que se ve igual con el texto grande o pequeño. Por encima de -6 las
 # letras se acercan demasiado entre sí y cuesta leerlas.
-GRUESOS = {"suave": -3.0, "media": -4.5, "fuerte": -6.0}
+GRUESO = -6.0            # cuánto engorda el trazo de la palabra que suena
 GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 TENUE = 0.5                      # lo apagado que queda lo que aún no se ha dicho
 
@@ -491,10 +491,11 @@ class Editor(NSObject):
                     "Reescribe tu archivo con «Persona 1:», «Persona 2:»…")
                 caja.addSubview_(self.boton_personas)
                 y[0] += 30
-                caja.addSubview_(ui.label("Marca quién habla en cada intervención y reescribe "
-                                          "tu archivo.", 11.0, ui.W_REGULAR,
-                                          NSColor.tertiaryLabelColor(),
-                                          NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+                self.explica_personas = ui.label(
+                    "Marca quién habla en cada intervención y reescribe tu archivo.",
+                    11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                    NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT)
+                caja.addSubview_(self.explica_personas)
                 y[0] += 26
                 return
             if not titulo("PERSONAS", "person.2.fill", "personas"):
@@ -563,10 +564,12 @@ class Editor(NSObject):
                     "Tarda lo mismo que la primera vez.")
                 caja.addSubview_(self.boton_otra)
                 y[0] += 30
-            caja.addSubview_(ui.label("Palabras que el modelo debe escribir bien: nombres propios, "
-                                      "siglas o jerga del audio.",
-                                      11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                      NSMakeRect(margen, y[0], util, 44), ui.ALIGN_LEFT))
+            self.explica_vocab = ui.label(
+                "Palabras que el modelo debe escribir bien: nombres propios, "
+                "siglas o jerga del audio.",
+                11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                NSMakeRect(margen, y[0], util, 44), ui.ALIGN_LEFT)
+            caja.addSubview_(self.explica_vocab)
             y[0] += 34
 
         def apartado_resaltado():
@@ -578,13 +581,6 @@ class Editor(NSObject):
             menu_tipo.setControlSize_(1)
             menu_tipo.selectItemAtIndex_(0 if pref.leer(pref.RESALTADO) == "palabra" else 1)
             control("Marca", menu_tipo)
-
-            fuerzas = [pref.ETIQUETAS[pref.FUERZA][c] for c in ("suave", "media", "fuerte")]
-            menu_fuerza = ui.popup(NSMakeRect(0, 0, 10, 22), fuerzas, self, b"elegirFuerza:")
-            menu_fuerza.setControlSize_(1)
-            menu_fuerza.selectItemAtIndex_(
-                ("suave", "media", "fuerte").index(pref.leer(pref.FUERZA)))
-            control("Fuerza", menu_fuerza)
             y[0] += 6
 
             if not self.palabras:
@@ -596,9 +592,11 @@ class Editor(NSObject):
                     "Tu texto no cambia: se respeta tal como está.")
                 caja.addSubview_(self.boton_tiempos)
                 y[0] += 30
-                caja.addSubview_(ui.label("Esta transcripción no guardó cuándo suena cada palabra.",
-                                          11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                          NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
+                self.explica_tiempos = ui.label(
+                    "Esta transcripción no guardó cuándo suena cada palabra.",
+                    11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
+                    NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT)
+                caja.addSubview_(self.explica_tiempos)
             else:
                 caja.addSubview_(ui.label("⌘ + clic en una palabra para escucharla desde ahí.",
                                           11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
@@ -812,24 +810,11 @@ class Editor(NSObject):
         self.apagarResaltado()
         pref.escribir(pref.RESALTADO, ("palabra", "fondo")[sender.indexOfSelectedItem()])
 
-    def elegirFuerza_(self, sender):
-        self.apagarResaltado()
-        pref.escribir(pref.FUERZA, ("suave", "media", "fuerte")[sender.indexOfSelectedItem()])
-
-    def cambiarFuerza_(self, sender):
-        """Menú Ver: cuánto se marca la palabra que suena."""
-        self.apagarResaltado()
-        pref.escribir(pref.FUERZA, ("suave", "media", "fuerte")[sender.tag()])
-        self.pintarPanel()
-
     def validateMenuItem_(self, item):
         """Las palomitas del menú marcan lo que está puesto ahora."""
         if item.action() == b"cambiarResaltado:":
             item.setState_(1 if pref.leer(pref.RESALTADO) ==
                            ("palabra" if item.tag() == 0 else "fondo") else 0)
-        elif item.action() == b"cambiarFuerza:":
-            item.setState_(1 if pref.leer(pref.FUERZA) ==
-                           ("suave", "media", "fuerte")[item.tag()] else 0)
         return True
 
     def textoMasGrande_(self, sender):
@@ -1265,7 +1250,7 @@ class Editor(NSObject):
         if i < 0 or t > self.mapa[i][3] + 0.5:
             i = None
         largo_texto = len(self.contenido())
-        grueso = GRUESOS.get(pref.leer(pref.FUERZA), GRUESOS["fuerte"])
+        grueso = GRUESO
         deseado, bloque = {}, None
         if i is not None:
             inicio, fin, desde, hasta = self.mapa[i]
@@ -1457,7 +1442,8 @@ class Editor(NSObject):
         sender.setEnabled_(False)
         sender.setAttributedTitle_(ui.attributed("Separando…", 12.0, ui.W_REGULAR,
                                                  NSColor.secondaryLabelColor()))
-        self.ponerAvance(sender, "Volviendo a escuchar el audio…")
+        self.ponerAvance(sender, "Volviendo a escuchar el audio…",
+                         getattr(self, "explica_personas", None))
 
     def activarResaltado_(self, sender):
         if self.dueno.calcularTiempos(self.ficha) is None:
@@ -1465,18 +1451,26 @@ class Editor(NSObject):
         sender.setEnabled_(False)
         sender.setAttributedTitle_(ui.attributed("Calculando…", 12.0, ui.W_REGULAR,
                                                  NSColor.secondaryLabelColor()))
-        self.ponerAvance(sender, "Volviendo a escuchar el audio…")
+        self.ponerAvance(sender, "Volviendo a escuchar el audio…",
+                         getattr(self, "explica_tiempos", None))
 
     @objc.python_method
-    def ponerAvance(self, boton, nota):
-        """La barra que va debajo del botón que acaba de pulsarse."""
+    def ponerAvance(self, boton, nota, explica=None):
+        """La barra que va debajo del botón que acaba de pulsarse.
+
+        Ocupa el sitio de la explicación de ese apartado, que se esconde: si no,
+        el texto y la barra se pisan.
+        """
         marco = boton.frame()
+        x, ancho = marco.origin.x, marco.size.width
+        if explica is not None:
+            explica.setHidden_(True)
+            x, ancho = explica.frame().origin.x, explica.frame().size.width
         self.avance = ui.barra_progreso(
-            NSMakeRect(marco.origin.x, marco.origin.y + 30, marco.size.width, 6), -1.0)
+            NSMakeRect(x, marco.origin.y + 32, ancho, 6), -1.0)
         self.dentro_panel.addSubview_(self.avance)
         self.nota_avance = ui.label(nota, 11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                                    NSMakeRect(marco.origin.x, marco.origin.y + 42,
-                                               marco.size.width, 16), ui.ALIGN_LEFT)
+                                    NSMakeRect(x, marco.origin.y + 44, ancho, 16), ui.ALIGN_LEFT)
         self.dentro_panel.addSubview_(self.nota_avance)
 
     @objc.python_method
@@ -1552,7 +1546,8 @@ class Editor(NSObject):
         sender.setEnabled_(False)
         sender.setAttributedTitle_(ui.attributed("Transcribiendo…", 12.0, ui.W_REGULAR,
                                                  NSColor.secondaryLabelColor()))
-        self.ponerAvance(sender, "Escuchando el audio otra vez…")
+        self.ponerAvance(sender, "Escuchando el audio otra vez…",
+                         getattr(self, "explica_vocab", None))
 
     def menuColor_(self, sender):
         """El punto de color abre la paleta."""

@@ -62,6 +62,8 @@ def renombrar_personas(contenido: str, nombres: dict, actuales=None) -> str:
     """Cambia «Persona 1:» (o el nombre que tenga ahora) por el nuevo, en todo el archivo.
 
     `nombres` y `actuales` son {"1": "Ana"}; un nombre vacío devuelve «Persona 1:».
+    A quien no venga en `nombres` se le deja el nombre que ya tenía: renombrar a
+    una persona no puede dejar sin nombre a las demás.
     """
     actuales = actuales or {}
     # de más largo a más corto, para que «Ana García» gane sobre «Ana»
@@ -75,7 +77,8 @@ def renombrar_personas(contenido: str, nombres: dict, actuales=None) -> str:
         desde = marca.end() if marca else 0
         for etiqueta, numero in etiquetas:
             if linea[desde:].startswith(f"{etiqueta}:"):
-                nuevo = (nombres.get(numero) or "").strip() or f"Persona {numero}"
+                nuevo = (nombres.get(numero, actuales.get(numero)) or "").strip() \
+                    or f"Persona {numero}"
                 resto = linea[desde + len(etiqueta) + 1:].lstrip(" ")
                 return f"{linea[:desde]}{nuevo}: {resto}"
         return linea
