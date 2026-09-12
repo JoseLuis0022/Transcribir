@@ -372,19 +372,12 @@ class Editor(NSObject):
         util = ancho - margen * 2
         y = [18.0]                                # de arriba hacia abajo (vista volteada)
 
-        def titulo(texto, primero=False, beta=False):
+        def titulo(texto, primero=False):
             if not primero:
                 y[0] += 14
                 caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
                 y[0] += 16
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
-            if beta:
-                ancho_titulo = ui.attributed(texto, 11.5, ui.W_SEMIBOLD,
-                                             NSColor.secondaryLabelColor()).size().width
-                marca = ui.pill("BETA", "hammer.fill", NSColor.systemOrangeColor(),
-                                alto=15.0, tamano=9.0)
-                marca.setFrameOrigin_((margen + ancho_titulo + 8, y[0] - 1))
-                caja.addSubview_(marca)
             y[0] += 22
 
         def control(etiqueta, vista, alto=22.0):
@@ -448,7 +441,7 @@ class Editor(NSObject):
         if self.ficha.get("cliente"):
             dato("Lo pidió", self.ficha["cliente"])
 
-        titulo("RESALTADO", beta=True)
+        titulo("RESALTADO")
         if self.tiene_audio:
             tipos = [pref.ETIQUETAS[pref.RESALTADO][c] for c in ("palabra", "fondo")]
             menu_tipo = ui.popup(NSMakeRect(0, 0, 10, 22), tipos, self, b"elegirResaltado:")
