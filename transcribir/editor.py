@@ -462,6 +462,18 @@ class Editor(NSObject):
             if not quienes:                       # todavía no se sabe quién habla
                 if not self.tiene_audio or not titulo("PERSONAS", "person.2.fill", "separar"):
                     return
+                cuantas = ajustes.get("cuantas_personas") or pref.leer(pref.CUANTAS)
+                valores = pref.ESQUEMA[pref.CUANTAS][1]
+                menu_cuantas = ui.popup(NSMakeRect(0, 0, 10, 22),
+                                        [pref.ETIQUETAS[pref.CUANTAS][v] for v in valores],
+                                        self, b"elegirCuantas:")
+                menu_cuantas.setControlSize_(1)
+                menu_cuantas.selectItemAtIndex_(
+                    valores.index(cuantas) if cuantas in valores else 0)
+                menu_cuantas.setToolTip_(
+                    "Si sabes cuántas personas hablan, decírselo acierta mucho más.")
+                control("Cuántas", menu_cuantas)
+                y[0] += 4
                 self.boton_personas = ui.bezel_button("Separar por persona",
                                                       NSMakeRect(boton_x, y[0], boton_w, 24),
                                                       self, b"separarPersonas:", size=11.5)
@@ -1410,9 +1422,16 @@ class Editor(NSObject):
         if self.sonando():
             self.reproductor.setRate_(VELOCIDADES[self.veloz][0])
 
+    def elegirCuantas_(self, sender):
+        """La pista de cuántas personas hablan, para esta grabación."""
+        valores = pref.ESQUEMA[pref.CUANTAS][1]
+        self.ficha.setdefault("ajustes", {})["cuantas_personas"] = valores[sender.indexOfSelectedItem()]
+        biblioteca.guardar(self.ficha)
+
     def separarPersonas_(self, sender):
         """Sobre una transcripción ya hecha: quién habla en cada intervención."""
-        if self.dueno.calcularTiempos(self.ficha, tarea="personas") is None:
+        cuantas = (self.ficha.get("ajustes") or {}).get("cuantas_personas")
+        if self.dueno.calcularTiempos(self.ficha, tarea="personas", cuantas=cuantas) is None:
             return
         sender.setEnabled_(False)
         sender.setAttributedTitle_(ui.attributed("Separando…", 12.0, ui.W_REGULAR,

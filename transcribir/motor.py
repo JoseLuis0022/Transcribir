@@ -166,6 +166,12 @@ class Motor(threading.Thread):
         self._revisar(t.id)
         return resultado, muestras, duracion
 
+    @staticmethod
+    def _cuantas(opciones: dict):
+        """Cuántas personas hablan, si se sabe. «auto» o vacío: que lo decida Sherpa."""
+        valor = str(opciones.get("cuantas_personas") or "auto")
+        return int(valor) if valor.isdigit() and int(valor) > 1 else None
+
     def _rehacer(self, t: Trabajo) -> None:
         """Vuelve sobre una transcripción ya hecha: calcula sus tiempos y, si se
         pide, separa por persona y reescribe el archivo con quién habla.
@@ -194,7 +200,8 @@ class Motor(threading.Thread):
             self._despachar(self._al_progreso, t.id, "Separando por persona…", -1.0)
             turnos = interlocutores.turnos(
                 muestras, segmentacion, voces, lambda: self._revisar(t.id),
-                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f))
+                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f),
+                cuantas=self._cuantas(t.opciones))
             personas = formatos.asignar_personas(palabras, turnos)
             if ficha.get("formato") == "srt":
                 nuevo = formatos.a_srt(palabras, personas)
@@ -231,7 +238,8 @@ class Motor(threading.Thread):
             self._despachar(self._al_progreso, t.id, "Separando por persona…", -1.0)
             turnos = interlocutores.turnos(
                 muestras, segmentacion, voces, lambda: self._revisar(t.id),
-                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f))
+                lambda f: self._despachar(self._al_progreso, t.id, "Separando por persona…", f),
+                cuantas=self._cuantas(t.opciones))
             personas = formatos.asignar_personas(palabras, turnos)
 
         if op["formato"] == "srt":

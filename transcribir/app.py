@@ -1337,9 +1337,11 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         return ficha
 
     @objc.python_method
-    def calcularTiempos(self, ficha, tarea="tiempos", vocabulario=None):
+    def calcularTiempos(self, ficha, tarea="tiempos", vocabulario=None, cuantas=None):
         """Encola volver sobre una transcripción ya hecha: sus tiempos, separarla
-        por persona, o rehacerla entera con otras pistas."""
+        por persona, o rehacerla entera con otras pistas.
+
+        `cuantas` es la pista de cuántas personas hablan en esta grabación."""
         audio_origen = biblioteca.ubicar(ficha, "origen")
         if audio_origen is None:
             self.alerta("No se encontró el audio",
@@ -1352,6 +1354,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                     "vocabulario": (ajustes.get("vocabulario") or "") if vocabulario is None
                                    else vocabulario,
                     "formato": "parrafos", "destino": str(audio_origen.parent),
+                    "cuantas_personas": (cuantas if cuantas is not None
+                                         else ajustes.get("cuantas_personas")
+                                         or pref.leer(pref.CUANTAS)),
                     "ficha": ficha["id"]}
         if tarea == "otra_vez":
             opciones["formato"] = ficha.get("formato") or "parrafos"

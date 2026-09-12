@@ -108,6 +108,8 @@ def cmd_transcribir(args) -> int:
                 if v is not None}
     if args.personas:
         opciones["personas"] = True
+    if args.cuantas:
+        opciones.update(personas=True, cuantas_personas=str(args.cuantas))
     if args.junto:
         opciones["guardar"] = "junto"
     if args.destino:
@@ -339,6 +341,8 @@ def parser_transcribir() -> argparse.ArgumentParser:
     p.add_argument("--precision", choices=("alta", "rapida"))
     p.add_argument("--vocabulario", help="nombres, siglas o términos del audio")
     p.add_argument("--personas", action="store_true", help="separa por interlocutor (Persona 1:, Persona 2:)")
+    p.add_argument("--cuantas", type=int, metavar="N",
+                   help="cuántas personas hablan; acierta más que dejarlo a su criterio")
     destino = p.add_mutually_exclusive_group()
     destino.add_argument("--destino", help="carpeta donde guardar el resultado")
     destino.add_argument("--junto", action="store_true", help="guardar junto al archivo original")

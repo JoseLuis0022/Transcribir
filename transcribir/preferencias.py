@@ -14,6 +14,7 @@ ESCRITORIO = Path.home() / "Desktop"
 IDIOMA, PRECISION, VOCABULARIO = "idioma", "precision", "vocabulario"
 FORMATO, GUARDAR, CARPETA, AL_TERMINAR = "formato", "guardar", "carpeta", "al_terminar"
 PERSONAS, TIEMPOS, RESALTADO = "personas", "tiempos", "resaltado"
+CUANTAS = "cuantas_personas"
 TAMANO, PANEL, FUERZA = "tamano_texto", "panel_editor", "fuerza_resaltado"
 CERRADOS = "apartados_cerrados"
 VIGILAR, CARPETA_VIGILADA = "vigilar", "carpeta_vigilada"
@@ -27,6 +28,7 @@ ESQUEMA = {
     VOCABULARIO: ("", str),
     FORMATO: ("parrafos", ("parrafos", "tiempos", "srt")),
     PERSONAS: (False, bool),
+    CUANTAS: ("auto", ("auto", "2", "3", "4", "5", "6", "7", "8", "9", "10")),
     TIEMPOS: (False, bool),
     RESALTADO: ("palabra", ("palabra", "fondo")),
     FUERZA: ("fuerte", ("suave", "media", "fuerte")),
@@ -45,12 +47,15 @@ ESQUEMA = {
 }
 
 # Opciones de cada trabajo (un agente puede cambiarlas solo para su petición).
-DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, PERSONAS, TIEMPOS, GUARDAR, CARPETA)
+DEL_TRABAJO = (IDIOMA, PRECISION, VOCABULARIO, FORMATO, PERSONAS, CUANTAS, TIEMPOS,
+               GUARDAR, CARPETA)
 
 ETIQUETAS = {
     IDIOMA: {"es": "Español", "en": "Inglés", "auto": "Detectar automáticamente"},
     PRECISION: {"alta": "Máxima precisión (1.7B)", "rapida": "Rápida (0.6B)"},
     FORMATO: {"parrafos": "Párrafos", "tiempos": "Con marcas de tiempo", "srt": "Subtítulos (.srt)"},
+    CUANTAS: dict({"auto": "Que lo decida la app"},
+                  **{str(n): f"{n} personas" for n in range(2, 11)}),
     RESALTADO: {"palabra": "La palabra en negrita", "fondo": "Fondo suave"},
     FUERZA: {"suave": "Suave", "media": "Media", "fuerte": "Fuerte"},
     TAMANO: {t: f"{t} pt" for t in ("13", "14", "15", "16", "17", "18", "20")},

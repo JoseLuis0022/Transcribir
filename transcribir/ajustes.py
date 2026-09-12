@@ -118,6 +118,8 @@ class ControladorAjustes(NSObject):
             self.filaMenu("Formato", "Texto, tiempos o subtítulos", pref.FORMATO),
             self.filaInterruptor("Separar por persona",
                                  "Marca quién habla: «Persona 1:», «Persona 2:»…", pref.PERSONAS),
+            self.filaMenu("Cuántas personas",
+                          "Si lo sabes, acierta mucho más", pref.CUANTAS),
             self.filaInterruptor("Preparar el resaltado",
                                  "Guarda cuándo suena cada palabra para el editor. Tarda un poco más",
                                  pref.TIEMPOS),

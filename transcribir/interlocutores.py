@@ -36,9 +36,11 @@ def _ejecutable() -> list[str]:
 
 
 def turnos(muestras, carpeta_segmentacion: Path, carpeta_voces: Path, revisar=None,
-           al_avanzar=None) -> list[tuple[float, float, int]]:
+           al_avanzar=None, cuantas=None) -> list[tuple[float, float, int]]:
     """Devuelve [(inicio, fin, persona)] en orden de tiempo; `persona` es un índice.
 
+    `cuantas` es la pista de cuántas personas hablan: si la sabes, se agrupan las
+    voces en ese número exacto y se acierta mucho más que dejándolo a ojo.
     `al_avanzar(fraccion)` recibe el avance; `revisar()` puede lanzar una excepción
     para cancelar, y entonces se detiene el proceso aparte.
     """
@@ -50,7 +52,7 @@ def turnos(muestras, carpeta_segmentacion: Path, carpeta_voces: Path, revisar=No
         errores = open(Path(carpeta) / "errores.txt", "w+")
         proceso = subprocess.Popen(
             _ejecutable() + ["--separar", str(audio), str(carpeta_segmentacion / SEGMENTACION),
-                             str(carpeta_voces / VOCES)],
+                             str(carpeta_voces / VOCES), str(cuantas or 0)],
             stdout=subprocess.PIPE, stderr=errores, text=True)
         lineas: queue.Queue = queue.Queue()
 
@@ -89,20 +91,26 @@ def turnos(muestras, carpeta_segmentacion: Path, carpeta_voces: Path, revisar=No
 
 
 def proceso(argumentos: list[str]) -> int:
-    """Lo que corre en el proceso aparte: `--separar audio.npy segmentacion.onnx voces.onnx`.
+    """Lo que corre en el proceso aparte: `--separar audio.npy segmentacion.onnx voces.onnx [n]`.
 
+    `n` es cuántas personas hablan, si se sabe; 0 deja que lo decida el agrupador.
     Escribe `avance 0.42` mientras trabaja y, al final, `turnos [[inicio, fin, persona], …]`.
     """
     import numpy as np
     import sherpa_onnx
 
-    audio, segmentacion, voces = argumentos
+    audio, segmentacion, voces = argumentos[:3]
+    cuantas = int(argumentos[3]) if len(argumentos) > 3 else 0
     config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
             pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=segmentacion),
             num_threads=HILOS),
         embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=voces, num_threads=HILOS),
-        clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1, threshold=UMBRAL),
+        # con el número de personas se agrupa en ese número exacto y el umbral no
+        # pinta nada; sin él, el agrupador decide, y ahí es donde se equivoca
+        clustering=sherpa_onnx.FastClusteringConfig(
+            num_clusters=cuantas if cuantas > 1 else -1,
+            threshold=UMBRAL),
         min_duration_on=0.3,
         min_duration_off=0.5,
     )
