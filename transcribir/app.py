@@ -689,8 +689,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         """Título, subtítulo y color del disco según lo que esté pasando."""
         self.pintarEstado()
         activa = next((c for c in self.cola if c["fraccion"] is not None), None)
-        listos = sum(1 for h in self.hechos if h["estado"] == "listo")
-        errores = sum(1 for h in self.hechos if h["estado"] == "error")
+        listos = sum(1 for h in self.hechos if h["tipo"] == "ficha")
+        errores = sum(1 for h in self.hechos if h["tipo"] == "error")
 
         if self.bienvenida is not None:
             descargando = self.bienvenida.descargando
@@ -793,8 +793,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 self.suscriptores[trabajo.id] = suscriptor
             self.motor.encolar(trabajo)
         if ignorados and cliente is None:
-            self.avisar(f"Se ignoraron {plural(ignorados, 'archivo', 'archivos')}: "
-                        "solo audio o video (.m4a, .mp4, .mp3, .wav, .mov).")
+            self.avisar(f"Se ignoró 1 archivo: solo audio o video" if ignorados == 1 else
+                        f"Se ignoraron {ignorados} archivos: solo audio o video")
         self.pintarCola()
         self.pintar()
         self.cafe()
