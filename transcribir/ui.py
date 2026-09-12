@@ -225,6 +225,19 @@ def menu_button(title, titles, frame, target, action, tag=0):
     return p
 
 
+def desfase_optico(img) -> float:
+    """Cuánto hay que subir un símbolo para que su cuerpo quede centrado.
+
+    Cada símbolo trae su propia caja: «folder» no tiene flecha arriba y «square.and
+    .arrow.up» sí, así que centrarlos por la imagen los deja a distinta altura.
+    Apple marca el cuerpo del glifo en el rectángulo de alineación; se usa ese.
+    """
+    if img is None:
+        return 0.0
+    caja = img.alignmentRect()
+    return img.size().height / 2.0 - (caja.origin.y + caja.size.height / 2.0)
+
+
 def barra_iconos(simbolos, frame, target, tamano=15.0):
     """Una fila de botones de solo icono, como las barras de herramientas del sistema.
 
@@ -236,7 +249,8 @@ def barra_iconos(simbolos, frame, target, tamano=15.0):
     v = NSView.alloc().initWithFrame_(frame)
     botones = []
     for i, (simbolo, accion, ayuda) in enumerate(simbolos):
-        b = symbol_button(simbolo, NSMakeRect(i * (lado + hueco), 0, lado, lado),
+        subir = desfase_optico(sf(simbolo, tamano))
+        b = symbol_button(simbolo, NSMakeRect(i * (lado + hueco), subir, lado, lado),
                           target, accion, tooltip=ayuda, size=tamano,
                           tint=NSColor.secondaryLabelColor())
         v.addSubview_(b)
