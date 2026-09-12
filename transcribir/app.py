@@ -15,7 +15,7 @@ import Quartz  # noqa: E402,F401  (ver ui.py)
 from AppKit import (  # noqa: E402
     NSAlert, NSApplication, NSBackingStoreBuffered, NSColor, NSImage, NSImageView, NSMenu,
     NSMenuItem, NSOpenPanel, NSPasteboardTypeFileURL, NSPasteboardURLReadingFileURLsOnlyKey,
-    NSProgressIndicator, NSScrollView, NSSearchField, NSTextField, NSTimer, NSView, NSVisualEffectView,
+    NSProgressIndicator, NSScrollView, NSTextField, NSTimer, NSView, NSVisualEffectView,
     NSWindow, NSWorkspace,
 )
 from Foundation import NSURL, NSMakeRect, NSObject  # noqa: E402
@@ -35,6 +35,7 @@ import ui  # noqa: E402
 from ajustes import ControladorAjustes  # noqa: E402
 from bienvenida import Bienvenida  # noqa: E402
 from editor import Editor  # noqa: E402
+from historial import Historial  # noqa: E402
 from identidad import COMPILACION, NOMBRE, REPO, VERSION  # noqa: E402
 from motor import EXTENSIONES, Motor, Trabajo, ruta_libre  # noqa: E402
 from vigia import Vigia  # noqa: E402
@@ -133,7 +134,6 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.cola = []           # {"id", "ruta", "fraccion", "cliente", "cancelando"}; fraccion None = en espera
         self.hechos = []         # lo de esta sesión que no llega al historial: errores y cancelados
         self.historial = biblioteca.todas()[:DEL_HISTORIAL]   # las transcripciones de siempre
-        self.filtro = ""         # lo escrito en el buscador del historial
         self.editores = {}       # id de ficha -> ventana de editor abierta
         self.claves_fila = {}    # id de ficha -> número, que es lo que entiende el tag de un botón
         self.filas_cola = {}     # id -> (barra, porcentaje) de la fila activa
@@ -145,6 +145,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.cafeina = None
         self.lote_listos, self.lote_errores = [], 0   # lo terminado desde que se llenó la cola
         self.ventana_ajustes = None
+        self.ventana_historial = None
         self.bienvenida = None
         self.glifos = {k: NSImage.alloc().initWithContentsOfFile_(str(recursos.ruta(f"glifo-{k}.png")))
                        for k in ("on", "off")}
@@ -235,7 +236,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             ui.menu_item("Cambiar carpeta de destino…", b"cambiarCarpeta:", "", self),
             None,
             ui.menu_item("Buscar…", b"buscarDocumento:", "f"),
-            ui.menu_item("Vaciar el historial…", b"limpiarTerminados:", "\x08", self),
+            ui.menu_item("Historial", b"abrirHistorial:", "y", self),
+            ui.menu_item("Limpiar la lista", b"limpiarTerminados:", "\x08", self),
             None,
             ui.menu_item("Cerrar", b"performClose:", "w"),
         ])
@@ -352,29 +354,18 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 
         # ---- historial
         y -= 18.0 + 16.0
-        titulo = ui.section_title("HISTORIAL", NSMakeRect(PAD + 4, y, 120, 16))
+        titulo = ui.section_title("EN ESTA SESIÓN", NSMakeRect(PAD + 4, y, 140, 16))
         fondo.addSubview_(titulo)
         self.cuenta_hechos = self.contador(fondo, y, botones=3)
-        boton_buscar = self.botonEncabezado("magnifyingglass.circle.fill", y, 2, b"abrirBusqueda:",
-                                            "Buscar en tus transcripciones (⌘F)")
+        boton_buscar = self.botonEncabezado("clock.arrow.circlepath", y, 2, b"abrirHistorial:",
+                                            "Ver todo el historial (⌘Y)")
         fondo.addSubview_(boton_buscar)
         boton_carpeta = self.botonEncabezado("folder.circle.fill", y, 1, b"abrirCarpeta:",
                                              "Abrir carpeta de destino")
         fondo.addSubview_(boton_carpeta)
         self.boton_limpiar = self.botonEncabezado("trash.circle.fill", y, 0, b"limpiarTerminados:",
-                                                  "Vaciar el historial (no borra tus archivos)")
+                                                  "Vaciar la lista (no borra tus archivos)")
         fondo.addSubview_(self.boton_limpiar)
-        self.encabezado = [titulo, self.cuenta_hechos, boton_buscar, boton_carpeta, self.boton_limpiar]
-
-        # el buscador ocupa el sitio del encabezado mientras está abierto
-        self.buscador = NSSearchField.alloc().initWithFrame_(NSMakeRect(PAD, y - 6, CW, 24))
-        self.buscador.setPlaceholderString_("Buscar en tus transcripciones")
-        self.buscador.setFont_(ui.NSFont.systemFontOfSize_(12.0))
-        self.buscador.setTarget_(self)
-        self.buscador.setAction_(b"buscar:")
-        self.buscador.setDelegate_(self)
-        self.buscador.setHidden_(True)
-        fondo.addSubview_(self.buscador)
 
         y -= 6.0 + HECHOS_H
         self.lista_hechos = self.tarjetaLista(fondo, y, HECHOS_H)
@@ -524,21 +515,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
 
     @objc.python_method
     def entradas(self):
-        """Lo que se ve en Historial: las transcripciones guardadas y, arriba, lo que
-        falló o se canceló en esta sesión (que no llega al historial)."""
-        lista = list(self.hechos) + [{"tipo": "ficha", "cuando": f.get("creado", 0.0), "ficha": f}
-                                     for f in self.historial]
-        if self.filtro:
-            consulta = self.filtro.lower()
-            encontradas = {f["id"]: f for f in biblioteca.buscar(self.filtro, self.historial)}
-            lista = [e for e in lista
-                     if (e["tipo"] == "ficha" and e["ficha"]["id"] in encontradas)
-                     or (e["tipo"] != "ficha" and consulta in e["nombre"].lower())]
-            for e in lista:
-                if e["tipo"] == "ficha":
-                    e["ficha"] = encontradas[e["ficha"]["id"]]
-        lista.sort(key=lambda e: e["cuando"], reverse=True)
-        return lista
+        """Lo que se ve en la ventana: solo lo de esta sesión, de lo más nuevo a lo
+        más viejo. Todo lo demás vive en la ventana de Historial."""
+        return list(self.hechos)
 
     @objc.python_method
     def pintarHechos(self):
@@ -546,12 +525,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         lista = self.entradas()
         self.vaciar(doc, len(lista), FILA_HECHO, HECHOS_H)
         if not lista:
-            if self.filtro:
-                self.estadoVacio(doc, HECHOS_H, "magnifyingglass",
-                                 f"Nada que contenga «{corto(self.filtro, 24)}»", False)
-            else:
-                self.estadoVacio(doc, HECHOS_H, "doc.text",
-                                 "Aquí aparecerán tus transcripciones", False)
+            self.estadoVacio(doc, HECHOS_H, "doc.text",
+                             "Aquí aparecerán tus transcripciones", False)
         for i, entrada in enumerate(lista):
             fila = self.filaEntrada(entrada, ultima=i == len(lista) - 1)
             fila.setFrameOrigin_((0, LISTA_PAD + i * FILA_HECHO))
@@ -867,9 +842,14 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         if ficha is not None:
             self.historial = [f for f in self.historial if f["id"] != ficha["id"]]
             self.historial.insert(0, ficha)
+            if item.get("tarea") != "tiempos":
+                self.hechos.insert(0, {"tipo": "ficha", "cuando": time.time(), "ficha": ficha,
+                                       "nombre": ficha["nombre"], "cliente": ficha.get("cliente")})
             editor = self.editores.get(ficha["id"])
             if editor is not None:                  # ya estaba abierta: ahora con resaltado
                 editor.recargar(ficha)
+            if self.ventana_historial is not None:
+                self.ventana_historial.pintar()
         if item.get("tarea") == "tiempos":      # solo se calculó el resaltado: nada que anunciar
             self.alCambiarCola()
             return
@@ -955,16 +935,6 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.pintarHechos()
         self.pintar()
         return cuantos
-
-    @objc.python_method
-    def vaciarHistorial(self):
-        """Olvida las transcripciones del historial. Los .txt siguen en tu carpeta."""
-        for ficha in self.historial:
-            biblioteca.olvidar(ficha["id"])
-        self.historial, self.hechos, self.filtro = [], [], ""
-        self.cerrarBusqueda()
-        self.pintarHechos()
-        self.pintar()
 
     # ---------------------------------------------------------------- ajustes --
     @objc.python_method
@@ -1213,13 +1183,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(pref.leer(pref.CARPETA)))
 
     def limpiarTerminados_(self, sender):
-        if not self.historial:
-            self.limpiar()
-            return
-        texto = (f"Se olvidarán {plural(len(self.historial), 'transcripción', 'transcripciones')} "
-                 "del historial.\n\nTus archivos de texto no se borran: siguen en su carpeta.")
-        if self.alerta("¿Vaciar el historial?", texto, ["Vaciar", "Cancelar"]) == 1000:
-            self.vaciarHistorial()
+        self.limpiar()
 
     def cancelar_(self, sender):
         self.cancelarTrabajo(sender.tag())
@@ -1324,39 +1288,28 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.pintarHechos()
         self.pintar()
 
-    # -------------------------------------------------------------- búsqueda --
-    def buscarDocumento_(self, sender):
-        self.abrirBusqueda_(sender)
+    # ------------------------------------------------------------- historial --
+    def abrirHistorial_(self, sender):
+        self.verHistorial()
 
-    def abrirBusqueda_(self, sender):
-        for vista in self.encabezado:
-            vista.setHidden_(True)
-        self.buscador.setHidden_(False)
-        self.ventana.makeFirstResponder_(self.buscador)
+    def buscarDocumento_(self, sender):
+        self.verHistorial(buscar=True)
 
     @objc.python_method
-    def cerrarBusqueda(self):
-        self.buscador.setStringValue_("")
-        self.buscador.setHidden_(True)
-        for vista in self.encabezado:
-            vista.setHidden_(False)
-        self.ventana.makeFirstResponder_(None)
+    def verHistorial(self, buscar=False):
+        """La ventana con todo lo transcrito, que es lo que sobrevive a la sesión."""
+        if self.ventana_historial is None:
+            self.ventana_historial = Historial.alloc().initWithDueno_(self)
+        self.ventana_historial.mostrar(buscar=buscar)
 
-    def buscar_(self, sender):
-        self.filtro = sender.stringValue().strip()
+    @objc.python_method
+    def olvidarFicha(self, ficha):
+        biblioteca.olvidar(ficha["id"])
+        self.historial = [f for f in self.historial if f["id"] != ficha["id"]]
+        self.hechos = [e for e in self.hechos
+                       if e["tipo"] != "ficha" or e["ficha"]["id"] != ficha["id"]]
         self.pintarHechos()
-
-    def controlTextDidChange_(self, notificacion):
-        self.filtro = self.buscador.stringValue().strip()
-        self.pintarHechos()
-
-    def control_textView_doCommandBySelector_(self, control, vista, selector):
-        if selector == "cancelOperation:":          # Esc cierra el buscador
-            self.filtro = ""
-            self.cerrarBusqueda()
-            self.pintarHechos()
-            return True
-        return False
+        self.pintar()
 
     def acercaDe_(self, sender):
         creditos = ui.attributed(
