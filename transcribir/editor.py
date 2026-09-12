@@ -47,7 +47,7 @@ GROSOR, TRAZO = "NSStrokeWidth", "NSStrokeColor"
 
 COLOR_RESALTE = NSColor.systemPurpleColor()
 INVISIBLE = NSFont.systemFontOfSize_(0.01)      # lo que está en el archivo pero no se dibuja
-CABECERA_NOMBRE, CABECERA_HORA, AIRE = 26.0, 26.0, 28.0
+CABECERA_NOMBRE, CABECERA_HORA, AIRE = 30.0, 30.0, 40.0
 TAMANOS = (12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0)     # los del ajuste
 COLUMNA = 540.0                  # ~70 caracteres por línea, que es lo cómodo de leer
 
@@ -122,13 +122,13 @@ class VistaTexto(NSTextView):
                 continue
             izquierda = self.textContainerOrigin().x
             ancho = self.bounds().size.width - izquierda
-            alto = y - 20                     # el renglón de la cabecera, encima del párrafo
+            alto = y - 24                     # el renglón de la cabecera, encima del párrafo
             x = izquierda
             if bloque.nombre and bloque.numero != dueno.editando():
-                nombre = ui.attributed(bloque.nombre, 12.0, ui.W_SEMIBOLD, bloque.color,
+                nombre = ui.attributed(bloque.nombre, 14.0, ui.W_SEMIBOLD, bloque.color,
                                        ui.ALIGN_LEFT)
-                nombre.drawInRect_(NSMakeRect(x, alto, ancho, 16))
-                x += nombre.size().width + 8
+                nombre.drawInRect_(NSMakeRect(x, alto - 2, ancho, 18))
+                x += nombre.size().width + 9
             if bloque.cuando:
                 ui.cifras(bloque.cuando, 11.0, NSColor.tertiaryLabelColor(),
                           ui.W_REGULAR).drawInRect_(NSMakeRect(x, alto + 1, ancho - x, 15))
@@ -341,7 +341,9 @@ class Editor(NSObject):
 
         def titulo(texto, primero=False):
             if not primero:
-                y[0] += 20                        # el aire separa los grupos, no una raya
+                y[0] += 14
+                caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
+                y[0] += 16
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
             y[0] += 22
 
@@ -398,7 +400,9 @@ class Editor(NSObject):
             dato("Lo pidió", self.ficha["cliente"])
 
         if not self.palabras and self.tiene_audio:
-            y[0] += 24
+            y[0] += 14
+            caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
+            y[0] += 18
             self.boton_tiempos = ui.bezel_button("Calcular los tiempos",
                                                  NSMakeRect(margen, y[0], util, 24),
                                                  self, b"activarResaltado:", size=11.5)
@@ -411,7 +415,9 @@ class Editor(NSObject):
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 26), ui.ALIGN_LEFT))
         elif self.palabras and self.tiene_audio:
-            y[0] += 24
+            y[0] += 14
+            caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
+            y[0] += 18
             caja.addSubview_(ui.label("⌘-clic en una palabra para escucharla desde ahí.",
                                       11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
                                       NSMakeRect(margen, y[0], util, 30), ui.ALIGN_LEFT))
@@ -589,7 +595,7 @@ class Editor(NSObject):
             posicion = fin + 1
         almacen.endEditing()
         # TextKit no aplica el hueco superior al primer párrafo: se lo da la vista
-        self.aire_arriba = (self.bloques[0].cabecera if self.bloques else AIRE) + 6
+        self.aire_arriba = (self.bloques[0].cabecera if self.bloques else 0) + AIRE
         self.ajustarColumna()
         self.texto.setNeedsDisplay_(True)
         self.ventana.invalidateCursorRectsForView_(self.texto)
@@ -655,7 +661,7 @@ class Editor(NSObject):
 
     @objc.python_method
     def anchoNombre(self, bloque):
-        return ui.attributed(bloque.nombre, 13.5, ui.W_SEMIBOLD, bloque.color).size().width + 10
+        return ui.attributed(bloque.nombre, 14.0, ui.W_SEMIBOLD, bloque.color).size().width + 10
 
     @objc.python_method
     def zonaCabecera(self, punto):
@@ -1146,6 +1152,14 @@ class Editor(NSObject):
             [NSURL.fileURLWithPath_(str(destino))])
 
     # --------------------------------------------------------------- personas --
+    def renombrarPrimera_(self, sender):
+        """Desde el menú: pone nombre a la primera persona que quede sin él."""
+        pendientes = [n for n in self.personas()
+                      if not (self.ficha.get("personas") or {}).get(n, "").strip()]
+        quien = (pendientes or self.personas() or [None])[0]
+        if quien is not None and quien in self.filas_persona:
+            self.renombrarPersona_(self.filas_persona[quien][1])
+
     def renombrarPersona_(self, sender):
         """La fila del panel se convierte en un campo, en su sitio."""
         numero = str(sender.tag())

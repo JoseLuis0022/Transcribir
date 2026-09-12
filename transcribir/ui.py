@@ -354,12 +354,14 @@ def pill_button(text, symbol, color, target, action, tag=0, alto=24.0):
     return b
 
 
-def menu_item(title, action, key, target=None, modifiers=None):
+def menu_item(title, action, key, target=None, modifiers=None, tag=None):
     it = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
     if target is not None:
         it.setTarget_(target)
     if modifiers is not None:
         it.setKeyEquivalentModifierMask_(modifiers)
+    if tag is not None:
+        it.setTag_(tag)
     return it
 
 

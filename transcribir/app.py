@@ -51,6 +51,7 @@ ACCION = 74.0              # botón de texto de una fila: «Abrir», «Ubicar…
 VIDEO = {".mp4", ".mov"}
 VIGILADA = "Carpeta vigilada"
 ATENCION_INFORMATIVA = 10       # rebote único en el Dock
+CMD, OPCION, MAYUS = 1 << 20, 1 << 19, 1 << 17
 DEL_HISTORIAL = 300             # cuántas transcripciones se muestran de una vez
 
 
@@ -241,6 +242,23 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         submenu("Ver", [
             ui.menu_item("Texto más grande", b"textoMasGrande:", "+"),
             ui.menu_item("Texto más pequeño", b"textoMasPequeno:", "-"),
+            None,
+            ui.menu_item("Mostrar u ocultar el panel", b"toggleInspector:", "i",
+                         modifiers=CMD | OPCION),
+        ])
+        submenu("Transcripción", [
+            ui.menu_item("Reproducir o pausar", b"reproducir:", " ", modifiers=OPCION),
+            ui.menu_item("Retroceder 15 s", b"atras:", "[", modifiers=CMD),
+            ui.menu_item("Avanzar 15 s", b"adelante:", "]", modifiers=CMD),
+            None,
+            ui.menu_item("Buscar siguiente", b"buscarSiguiente:", "g", modifiers=CMD),
+            None,
+            ui.menu_item("Exportar a PDF…", b"exportarComo:", "", tag=0),
+            ui.menu_item("Exportar a Word…", b"exportarComo:", "", tag=1),
+            ui.menu_item("Mostrar en Finder", b"mostrarEnFinder:", "r", modifiers=CMD | MAYUS),
+            None,
+            ui.menu_item("Calcular los tiempos", b"activarResaltado:", ""),
+            ui.menu_item("Poner nombre a quien habla…", b"renombrarPrimera:", ""),
         ])
         ventana = submenu("Ventana", [
             ui.menu_item("Minimizar", b"performMiniaturize:", "m"),
