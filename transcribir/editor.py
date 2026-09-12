@@ -11,7 +11,8 @@ from pathlib import Path
 import objc
 from AppKit import (
     NSApplication, NSBackingStoreBuffered, NSButton, NSColor, NSCursor, NSFont, NSSavePanel,
-    NSScrollView, NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow, NSWorkspace,
+    NSScrollView, NSSearchField, NSSlider, NSTextView, NSView, NSVisualEffectView, NSWindow,
+    NSWorkspace,
 )
 from AVFoundation import AVPlayer, AVPlayerItem
 from CoreMedia import CMTimeGetSeconds, CMTimeMakeWithSeconds
@@ -185,7 +186,9 @@ class Editor(NSObject):
         self.pintadas = {}                    # qué trozos están marcados ahora
         self.lectura = float(pref.leer(pref.TAMANO))
         self.campo_nombre = None
-        self.pastilla_oculta = None
+        self.oculto = None
+        self.filas_persona = {}
+        self.encontrado, self.cual = [], -1
         self.sucio = False
         self.arrastrando = False
         self.reproductor = None
@@ -236,7 +239,7 @@ class Editor(NSObject):
     @objc.python_method
     def construirCabecera(self, fondo):
         alto = CABECERA
-        barra = NSView.alloc().initWithFrame_(NSMakeRect(0, H - alto, W, alto))
+        barra = ui.material(NSMakeRect(0, H - alto, W, alto), ui.MATERIAL_BARRA)
         barra.setAutoresizingMask_(PEGADO_ARRIBA)
         fondo.addSubview_(barra)
 
@@ -251,6 +254,17 @@ class Editor(NSObject):
                                 NSMakeRect(PAD, arriba - 19, ancho_texto, 16), ui.ALIGN_LEFT,
                                 truncate=ui.TRUNC_MIDDLE)
         barra.addSubview_(self.detalle)
+
+        ancho_buscar = 190.0
+        self.buscador = NSSearchField.alloc().initWithFrame_(
+            NSMakeRect(W - PAD - ancho_botones - 10 - ancho_buscar, arriba - 5, ancho_buscar, 24))
+        self.buscador.setPlaceholderString_("Buscar en la transcripción")
+        self.buscador.setFont_(NSFont.systemFontOfSize_(12.0))
+        self.buscador.setTarget_(self)
+        self.buscador.setAction_(b"buscarSiguiente:")
+        self.buscador.setDelegate_(self)
+        self.buscador.setAutoresizingMask_(1 | 8)
+        barra.addSubview_(self.buscador)
 
         derecha, botones = ui.barra_iconos(
             [("square.and.arrow.up", b"menuExportar:", "Exportar a PDF o a Word"),
@@ -275,8 +289,9 @@ class Editor(NSObject):
     @objc.python_method
     def construirPanel(self, fondo):
         """La columna de la derecha: quién habla, de dónde viene y qué tiene."""
-        self.panel = NSView.alloc().initWithFrame_(
-            NSMakeRect(W - PANEL_W, TRANSPORTE, PANEL_W, H - CABECERA - TRANSPORTE))
+        self.panel = ui.material(
+            NSMakeRect(W - PANEL_W, TRANSPORTE, PANEL_W, H - CABECERA - TRANSPORTE),
+            ui.MATERIAL_LATERAL)
         fondo.addSubview_(self.panel)
         self.raya_panel = ui.hairline(NSMakeRect(0, 0, 1, self.panel.frame().size.height))
         self.raya_panel.setAutoresizingMask_(ALTO_FLEX)
@@ -297,8 +312,12 @@ class Editor(NSObject):
         util = ancho - margen * 2
         y = [caja.frame().size.height - 22.0]        # se va bajando desde arriba
 
-        def titulo(texto, aire=0.0):
-            y[0] -= 16 + aire
+        def titulo(texto, primero=False):
+            if not primero:                       # una raya separa cada apartado
+                y[0] -= 14
+                caja.addSubview_(ui.hairline(NSMakeRect(margen, y[0], util, 1)))
+                y[0] -= 16
+            y[0] -= 16
             caja.addSubview_(ui.section_title(texto, NSMakeRect(margen, y[0], util, 16)))
             y[0] -= 8
 
@@ -312,8 +331,9 @@ class Editor(NSObject):
 
         nombres = self.ficha.get("personas") or {}
         quienes = self.personas()
+        self.filas_persona = {}
         if quienes:
-            titulo("PERSONAS")
+            titulo("PERSONAS", primero=True)
             for i, numero in enumerate(quienes):
                 y[0] -= 32
                 color = ui.COLORES_PERSONA[i % len(ui.COLORES_PERSONA)]
@@ -335,11 +355,11 @@ class Editor(NSObject):
                 boton.setTag_(int(numero))
                 boton.setToolTip_("Ponle su nombre")
                 caja.addSubview_(boton)
-            y[0] -= 10
+                self.filas_persona[numero] = (fila, boton)
 
         ruta = biblioteca.ubicar(self.ficha)
         ajustes = self.ficha.get("ajustes") or {}
-        titulo("DETALLES", aire=6.0)
+        titulo("DETALLES", primero=not quienes)
         dato("Duración", formatos.duracion_corta(self.ficha.get("duracion") or 0))
         dato("Fecha", exportar.fecha_corta(self.ficha.get("creado")))
         dato("Idioma", {"es": "Español", "en": "Inglés"}.get(ajustes.get("idioma"), "Automático"))
@@ -351,7 +371,7 @@ class Editor(NSObject):
         if self.ficha.get("cliente"):
             dato("Lo pidió", self.ficha["cliente"])
 
-        titulo("RESALTADO", aire=10.0)
+        titulo("RESALTADO")
         if self.palabras:
             y[0] -= 34
             caja.addSubview_(ui.label(
@@ -381,17 +401,41 @@ class Editor(NSObject):
     def alternarPanel_(self, sender):
         self.ver_panel = not self.ver_panel
         pref.escribir(pref.PANEL, self.ver_panel)
-        self.colocar()
+        self.colocar(animado=True)
 
     @objc.python_method
-    def colocar(self):
-        """Reparte el ancho de la ventana entre el texto y el panel."""
+    def sitios(self):
+        """Dónde van el panel y el texto con el ancho de ventana de ahora."""
         marco = self.ventana.contentView().frame()
         alto = marco.size.height - CABECERA - TRANSPORTE
-        self.panel.setHidden_(not self.ver_panel)
-        self.panel.setFrame_(NSMakeRect(marco.size.width - PANEL_W, TRANSPORTE, PANEL_W, alto))
+        dentro = NSMakeRect(marco.size.width - PANEL_W, TRANSPORTE, PANEL_W, alto)
+        fuera = NSMakeRect(marco.size.width, TRANSPORTE, PANEL_W, alto)
         ancho_texto = marco.size.width - PAD - (PANEL_W + 8 if self.ver_panel else PAD)
-        self.scroll.setFrame_(NSMakeRect(PAD, TRANSPORTE, max(ancho_texto, 200.0), alto))
+        return (dentro if self.ver_panel else fuera,
+                NSMakeRect(PAD, TRANSPORTE, max(ancho_texto, 200.0), alto))
+
+    @objc.python_method
+    def colocar(self, animado=False):
+        """Reparte el ancho de la ventana entre el texto y el panel."""
+        panel, texto = self.sitios()
+        if animado and self.ver_panel:
+            self.panel.setFrame_(NSMakeRect(panel.origin.x + PANEL_W, panel.origin.y,
+                                            PANEL_W, panel.size.height))
+        self.panel.setHidden_(False)
+        if animado and not ui.poca_animacion():
+            ui.NSAnimationContext.beginGrouping()
+            ui.NSAnimationContext.currentContext().setDuration_(0.28)
+            self.panel.animator().setFrame_(panel)
+            self.scroll.animator().setFrame_(texto)
+            ui.NSAnimationContext.endGrouping()
+            self.performSelector_withObject_afterDelay_(b"acomodarTexto:", None, 0.3)
+        else:
+            self.panel.setFrame_(panel)
+            self.scroll.setFrame_(texto)
+            self.acomodarTexto_(None)
+
+    def acomodarTexto_(self, _):
+        self.panel.setHidden_(not self.ver_panel)
         self.texto.setFrameSize_((self.scroll.contentSize().width, self.texto.frame().size.height))
         self.ajustarColumna()
 
@@ -426,7 +470,7 @@ class Editor(NSObject):
 
     @objc.python_method
     def construirTransporte(self, fondo):
-        barra = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, W, TRANSPORTE))
+        barra = ui.material(NSMakeRect(0, 0, W, TRANSPORTE), ui.MATERIAL_BARRA)
         barra.setAutoresizingMask_(PEGADO_ABAJO)
         fondo.addSubview_(barra)
         barra.addSubview_(ui.hairline(NSMakeRect(0, TRANSPORTE - 1, W, 1)))
@@ -678,17 +722,26 @@ class Editor(NSObject):
         self.campo_nombre = None
         campo.setDelegate_(None)
         campo.removeFromSuperview()
-        if getattr(self, "pastilla_oculta", None) is not None:
-            self.pastilla_oculta.setHidden_(False)
-            self.pastilla_oculta = None
+        for vista in getattr(self, "oculto", ()) or ():
+            vista.setHidden_(False)
+        self.oculto = None
         self.texto.setNeedsDisplay_(True)
         self.ventana.makeFirstResponder_(self.texto)
 
+    def controlTextDidChange_(self, notificacion):
+        if notificacion.object() is self.buscador:
+            self.buscar_en_texto(self.buscador.stringValue())
+
     def control_textView_doCommandBySelector_(self, control, vista, selector):
-        if selector == "cancelOperation:":
+        if selector != "cancelOperation:":
+            return False
+        if control is self.buscador:                 # Esc limpia la búsqueda
+            self.buscador.setStringValue_("")
+            self.buscar_en_texto("")
+            self.ventana.makeFirstResponder_(self.texto)
+        else:
             self.cerrarCampoNombre()
-            return True
-        return False
+        return True
 
     def guardarNombre_(self, sender):
         if getattr(self, "campo_nombre", None) is None:
@@ -862,6 +915,59 @@ class Editor(NSObject):
                 if not self.sonando():
                     self.alternarReproduccion()
                 return
+
+    # -------------------------------------------------------------- búsqueda --
+    def buscarDocumento_(self, sender):
+        """⌘F: al campo de búsqueda de esta transcripción."""
+        self.ventana.makeFirstResponder_(self.buscador)
+
+    def buscarSiguiente_(self, sender):
+        self.buscar_en_texto(self.buscador.stringValue(), avanzar=True)
+
+    @objc.python_method
+    def buscar_en_texto(self, consulta, avanzar=False):
+        """Marca todo lo que coincide y lleva a la siguiente coincidencia."""
+        gestor = self.texto.layoutManager()
+        largo = len(self.contenido())
+        for rango in self.encontrado:
+            gestor.removeTemporaryAttribute_forCharacterRange_(FONDO_TEMPORAL, NSMakeRange(*rango))
+        self.encontrado = []
+        consulta = (consulta or "").strip()
+        if len(consulta) < 2:
+            self.pintarCuantas(0)
+            return
+        texto, aguja, desde = self.contenido().lower(), consulta.lower(), 0
+        while True:
+            donde = texto.find(aguja, desde)
+            if donde < 0 or donde + len(aguja) > largo:
+                break
+            self.encontrado.append((donde, len(aguja)))
+            desde = donde + len(aguja)
+        for rango in self.encontrado:
+            gestor.addTemporaryAttributes_forCharacterRange_(
+                {FONDO_TEMPORAL: NSColor.systemYellowColor().colorWithAlphaComponent_(0.35)},
+                NSMakeRange(*rango))
+        self.pintarCuantas(len(self.encontrado))
+        if not self.encontrado:
+            return
+        if avanzar:
+            self.cual = (self.cual + 1) % len(self.encontrado)
+        else:
+            self.cual = 0
+        rango = NSMakeRange(*self.encontrado[self.cual])
+        self.texto.scrollRangeToVisible_(rango)
+        self.texto.showFindIndicatorForRange_(rango)
+
+    @objc.python_method
+    def pintarCuantas(self, cuantas):
+        consulta = self.buscador.stringValue().strip()
+        if not consulta:
+            self.pintarDetalle()
+        elif cuantas:
+            self.detalle.setStringValue_(
+                f"{cuantas} coincidencia{'s' if cuantas > 1 else ''} de «{consulta}»")
+        else:
+            self.detalle.setStringValue_(f"Nada que diga «{consulta}»")
 
     # -------------------------------------------------------------- resaltado --
     @objc.python_method
@@ -1045,11 +1151,18 @@ class Editor(NSObject):
     # --------------------------------------------------------------- personas --
     def renombrarPersona_(self, sender):
         """La fila del panel se convierte en un campo, en su sitio."""
+        numero = str(sender.tag())
+        fila = self.filas_persona.get(numero)
         marco = sender.frame()
         self.campoNombre(sender.tag(),
                          ui.COLORES_PERSONA[(sender.tag() - 1) % len(ui.COLORES_PERSONA)],
-                         self.dentro_panel, NSMakeRect(marco.origin.x, marco.origin.y,
-                                                       marco.size.width, 28), 12.5)
+                         self.dentro_panel,
+                         NSMakeRect(marco.origin.x, marco.origin.y, marco.size.width, 28), 12.5)
+        if fila is not None and self.campo_nombre is not None:
+            # la fila se esconde: si no, su nombre se vería debajo del campo
+            self.oculto = fila
+            for vista in fila:
+                vista.setHidden_(True)
 
     @objc.python_method
     def renombrarPersonas(self, nombres):

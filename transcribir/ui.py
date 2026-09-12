@@ -11,8 +11,9 @@ import Quartz  # noqa: F401
 warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
 
 from AppKit import (  # noqa: E402
-    NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
-    NSMutableParagraphStyle, NSPopUpButton, NSTextField, NSView, NSWorkspace,
+    NSAnimationContext, NSButton, NSColor, NSFont, NSImage, NSImageView, NSMenu, NSMenuItem,
+    NSMutableParagraphStyle, NSPopUpButton, NSSearchField, NSTextField, NSView,
+    NSVisualEffectView, NSWorkspace,
 )
 from Foundation import NSAttributedString, NSMakePoint, NSMakeRect  # noqa: E402
 
@@ -27,7 +28,8 @@ STYLE_TITLED, STYLE_CLOSABLE, STYLE_MINI, STYLE_RESIZABLE = 1, 2, 4, 8
 STYLE_FULL_CONTENT = 1 << 15
 IMG_SCALE_PROPORTIONAL = 3
 IMAGE_ONLY = 1
-BLEND_BEHIND_WINDOW, VFX_ACTIVE, MATERIAL_UNDER_WINDOW = 0, 1, 21
+BLEND_BEHIND_WINDOW, BLEND_DENTRO, VFX_ACTIVE = 0, 1, 1
+MATERIAL_UNDER_WINDOW, MATERIAL_BARRA, MATERIAL_LATERAL = 21, 10, 7
 W_REGULAR, W_MEDIUM, W_SEMIBOLD = 0.0, 0.23, 0.3
 PLUMA_BARRIDO = 0.06      # lo difuminado que va el borde del barrido
 TRUNC_TAIL, TRUNC_MIDDLE = 4, 5
@@ -150,6 +152,18 @@ def gradient_view(frame, radius, colors, start=(0.0, 1.0), end=(1.0, 0.0)):
     continuous(lay, radius)
     v.setLayer_(lay)
     v.setWantsLayer_(True)
+    return v
+
+
+def material(frame, cual):
+    """Una zona con su propio material: una barra, una columna lateral…
+
+    Es como distingue macOS las partes de una ventana, en vez de pintar colores.
+    """
+    v = NSVisualEffectView.alloc().initWithFrame_(frame)
+    v.setMaterial_(cual)
+    v.setBlendingMode_(BLEND_DENTRO)
+    v.setState_(VFX_ACTIVE)
     return v
 
 

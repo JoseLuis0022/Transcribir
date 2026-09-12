@@ -233,7 +233,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             ui.menu_item("Abrir carpeta de destino", b"abrirCarpeta:", "O", self),
             ui.menu_item("Cambiar carpeta de destino…", b"cambiarCarpeta:", "", self),
             None,
-            ui.menu_item("Buscar en el historial…", b"abrirBusqueda:", "f", self),
+            ui.menu_item("Buscar…", b"buscarDocumento:", "f"),
             ui.menu_item("Vaciar el historial…", b"limpiarTerminados:", "\x08", self),
             None,
             ui.menu_item("Cerrar", b"performClose:", "w"),
@@ -1298,6 +1298,9 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.pintar()
 
     # -------------------------------------------------------------- búsqueda --
+    def buscarDocumento_(self, sender):
+        self.abrirBusqueda_(sender)
+
     def abrirBusqueda_(self, sender):
         for vista in self.encabezado:
             vista.setHidden_(True)
