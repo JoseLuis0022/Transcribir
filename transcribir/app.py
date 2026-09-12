@@ -25,6 +25,7 @@ from PyObjCTools import AppHelper  # noqa: E402
 import agentes  # noqa: E402
 import avisos  # noqa: E402
 import biblioteca  # noqa: E402
+import carpetas  # noqa: E402
 import exportar  # noqa: E402
 import formatos  # noqa: E402
 from formatos import duracion_corta  # noqa: E402
@@ -1002,6 +1003,38 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         self.pintar()
         if self.ventana_ajustes is not None:
             self.ventana_ajustes.sincronizar()
+
+    @objc.python_method
+    def empezarAVigilar(self, carpeta):
+        """Enciende la vigilancia y pregunta qué hacer con lo que ya está ahí dentro.
+
+        Vigilar significa «lo que llegue a partir de ahora», pero una carpeta como
+        la de Notas de Voz llega llena: hay que decir si se transcribe también.
+        """
+        pref.escribir(pref.CARPETA_VIGILADA, str(carpeta))
+        pref.escribir(pref.VIGILAR, True)
+        self.configurarVigia(rebaselinar=True)     # lo que ya hay no se toma solo
+        self.alCambiarAjuste(pref.VIGILAR)
+        pendientes = self.sinTranscribir()
+        if not pendientes:
+            return 0
+        cuantas = len(pendientes)
+        nombre = carpetas.como_se_llama(carpeta)
+        respuesta = self.alerta(
+            f"{nombre} ya tiene {plural(cuantas, 'grabación', 'grabaciones')} sin transcribir",
+            "A partir de ahora se transcribe sola cada grabación nueva.\n"
+            "Las que ya están también se pueden transcribir, pero tardará un buen rato.",
+            [f"Transcribir {'la' if cuantas == 1 else 'las'} {cuantas}", "Solo las nuevas"])
+        if respuesta != 1000:
+            return 0
+        self.encolar(pendientes)
+        return cuantas
+
+    @objc.python_method
+    def sinTranscribir(self):
+        """Lo que hay en la carpeta vigilada y todavía no tiene transcripción."""
+        hechos = {str(Path(f.get("origen") or "")) for f in self.historial}
+        return [ruta for ruta in self.vigia.medios() if str(ruta) not in hechos]
 
     @objc.python_method
     def configurarVigia(self, rebaselinar):

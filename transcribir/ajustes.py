@@ -483,12 +483,15 @@ class ControladorAjustes(NSObject):
     def cambiarInterruptor_(self, sender):
         clave = self.claves[sender.tag()]
         encender = sender.state() == 1
-        if clave == pref.VIGILAR and encender and not pref.leer(pref.CARPETA_VIGILADA):
-            carpeta = self.pedirCarpeta(None)        # sin carpeta todavía: pedirla primero
-            if carpeta is None:
-                sender.setState_(0)
-                return
-            pref.escribir(pref.CARPETA_VIGILADA, carpeta)
+        if clave == pref.VIGILAR and encender:
+            carpeta = pref.leer(pref.CARPETA_VIGILADA)
+            if not carpeta:
+                carpeta = self.pedirCarpeta(None)    # sin carpeta todavía: pedirla primero
+                if carpeta is None:
+                    sender.setState_(0)
+                    return
+            self.dueno.empezarAVigilar(carpeta)      # pregunta qué hacer con lo que ya hay
+            return
         self.guardar(clave, encender)
 
     def vigilarConocida_(self, sender):
@@ -497,13 +500,15 @@ class ControladorAjustes(NSObject):
         if pref.leer(pref.VIGILAR) and pref.leer(pref.CARPETA_VIGILADA) == ruta:
             self.guardar(pref.VIGILAR, False)
             return
-        self.guardar(pref.CARPETA_VIGILADA, ruta)
-        self.guardar(pref.VIGILAR, True)
+        self.dueno.empezarAVigilar(ruta)
 
     def elegirCarpeta_(self, sender):
         clave = self.claves[sender.tag()]
         carpeta = self.pedirCarpeta(pref.leer(clave))
         if carpeta is None:
+            return
+        if clave == pref.CARPETA_VIGILADA:
+            self.dueno.empezarAVigilar(carpeta)
             return
         if clave == pref.CARPETA:
             pref.escribir(pref.GUARDAR, "carpeta")

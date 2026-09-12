@@ -58,6 +58,10 @@ class Vigia:
             self._guardar()
             self.al_encontrar(listos)
 
+    def medios(self) -> list[Path]:
+        """Los audios y videos que hay ahora mismo en la carpeta vigilada."""
+        return self._medios()
+
     def _medios(self) -> list[Path]:
         """Los audios y videos de la carpeta. Algunas, como las de Notas, los
         guardan dentro de subcarpetas con nombres de UUID: ahí hay que entrar."""
