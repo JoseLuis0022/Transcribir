@@ -147,6 +147,9 @@ def cmd_transcribir(args) -> int:
                     estado = f"{pct} %"
                 print(f"#{ev['id']} {Path(ev['archivo']).name}: {estado}", file=sys.stderr, flush=True)
         elif tipo == "terminado" and not args.json:
+            if ev.get("aviso"):
+                print(f"aviso #{ev['id']} {Path(ev['archivo']).name}: {ev['aviso']}; "
+                      "se transcribió lo que hay", file=sys.stderr)
             if args.texto:
                 print(f"==> {ev['ruta']} <==\n{ev['texto']}")
             else:

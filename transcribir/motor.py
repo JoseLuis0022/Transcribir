@@ -19,6 +19,7 @@ IDIOMAS = {"es": "Spanish", "en": "English", "auto": None}
 EXTENSIONES = {".m4a", ".mp4", ".mp3", ".wav", ".mov"}
 REGISTRO = Path.home() / "Library" / "Logs" / "Transcribir.log"
 REPOSO = 300.0             # segundos sin trabajo tras los que se sueltan los modelos
+FALTA_AVISABLE = 1.0       # segundos que tienen que faltar para avisar de un archivo cortado
 
 
 class Cancelado(Exception):
@@ -32,6 +33,7 @@ class Trabajo:
     opciones: dict            # idioma, precision, vocabulario, formato, destino
     cliente: str | None = None  # "Claude Code", "Carpeta vigilada"…; None si lo agregó el usuario
     tarea: str = "transcribir"  # o "tiempos"/"personas": rehacer algo de una ficha ya hecha
+    aviso: str | None = None    # se transcribió, pero con un problema que conviene saber
 
 
 GENERICOS = {"recording", "audio", "grabacion", "grabación", "nueva grabación", "untitled"}
@@ -60,6 +62,12 @@ def ruta_libre(carpeta: Path, nombre: str, extension: str = ".txt") -> Path:
         ruta = carpeta / f"{nombre} ({n}){extension}"
         n += 1
     return ruta
+
+
+def aviso_incompleto(duracion: float, faltan: float) -> str:
+    """«Archivo incompleto: faltan 23 min de 1 h 15 min», para la ventana y el aviso."""
+    total = formatos.duracion_corta(duracion + faltan)
+    return f"Archivo incompleto: faltan {formatos.duracion_corta(faltan)} de {total}"
 
 
 def motivo_legible(e: Exception) -> str:
@@ -176,7 +184,14 @@ class Motor(threading.Thread):
         alineador = self._obtener_alineador(t) if con_tiempos else None
         self._revisar(t.id)
 
-        muestras, duracion = audio.leer(t.origen)
+        muestras, duracion, faltan = audio.leer(t.origen)
+        if faltan >= FALTA_AVISABLE:
+            # la cabecera promete más audio del que hay (una descarga o copia cortada):
+            # se transcribe lo que hay y se avisa de lo que falta
+            t.aviso = aviso_incompleto(duracion, faltan)
+            with REGISTRO.open("a", encoding="utf-8") as log:
+                log.write(f"\n[{time.ctime()}] {t.origen}\n{t.aviso}: se leyeron "
+                          f"{duracion:.1f} s y faltan {faltan:.1f} s\n")
         self._revisar(t.id)
         self._despachar(self._al_progreso, t.id, "Transcribiendo…", 0.0)
 
@@ -294,6 +309,7 @@ class Motor(threading.Thread):
         ficha["cuantas_personas"] = len(set(personas)) if personas else 0
         if personas:
             ficha["personas"] = {}
+        ficha["aviso"] = t.aviso
         biblioteca.guardar(ficha)
         biblioteca.guardar_palabras(ficha["id"], palabras, personas) if palabras else None
         self._despachar(self._al_terminar, t.id, str(biblioteca.ubicar(ficha)),
@@ -318,6 +334,9 @@ class Motor(threading.Thread):
         ficha = biblioteca.crear(t.origen, destino, op, duracion, segundos, t.cliente,
                                  len(set(personas)) if personas else 0,
                                  titulo=notasvoz.titulo(t.origen))
+        if t.aviso:
+            ficha["aviso"] = t.aviso
+            biblioteca.guardar(ficha)
         if palabras:
             biblioteca.guardar_palabras(ficha["id"], palabras, personas)
         self._despachar(self._al_terminar, t.id, str(destino), duracion, segundos, ficha["id"])

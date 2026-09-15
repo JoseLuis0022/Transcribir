@@ -611,12 +611,20 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
                 tooltip="Quitar del historial", tint=NSColor.tertiaryLabelColor()))
             return
 
-        v.addSubview_(ui.icon_view("checkmark.circle.fill", NSMakeRect(16, 15, 20, 20),
-                                   NSColor.systemGreenColor(), 15.0))
+        # transcrita, pero con algo que saber (un archivo cortado): en naranja, no en verde
+        aviso = None if ficha.get("coincidencia") else ficha.get("aviso")
+        v.addSubview_(ui.icon_view("exclamationmark.triangle.fill" if aviso else "checkmark.circle.fill",
+                                   NSMakeRect(16, 15, 20, 20),
+                                   NSColor.systemOrangeColor() if aviso else NSColor.systemGreenColor(), 15.0))
         self.nombreConEtiqueta(v, ficha["nombre"], ficha.get("cliente"), ancho)
-        v.addSubview_(ui.label(ficha.get("coincidencia") or self.detalleFicha(ficha, ruta),
-                               11.0, ui.W_REGULAR, NSColor.tertiaryLabelColor(),
-                               NSMakeRect(46, 9, ancho, 15), ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL))
+        detalle = ui.label(aviso or ficha.get("coincidencia") or self.detalleFicha(ficha, ruta),
+                           11.0, ui.W_REGULAR,
+                           NSColor.systemOrangeColor() if aviso else NSColor.tertiaryLabelColor(),
+                           NSMakeRect(46, 9, ancho, 15), ui.ALIGN_LEFT, truncate=ui.TRUNC_TAIL)
+        if aviso:
+            detalle.setToolTip_(f"{aviso}. Se transcribió todo lo que hay: "
+                                f"{duracion_corta(ficha.get('duracion', 0))} de audio.")
+        v.addSubview_(detalle)
         abrir = ui.bezel_button("Abrir", NSMakeRect(x_boton, 11, ACCION, 28),
                                 self, b"abrirEditor:", tag=etiqueta)
         abrir.setToolTip_(f"Ver, escuchar y corregir\n{ruta}")
@@ -923,9 +931,13 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             return
         self.lote_listos.append((item["ruta"].name, ruta_txt))
         self.alCambiarCola()
-        self.emitir(id_trabajo, {"evento": "terminado", "archivo": str(item["ruta"]), "ruta": ruta_txt,
-                                 "duracion": round(duracion, 1), "segundos": round(segundos, 1)}, final=True)
-        self.notificar(item["ruta"].name, ruta_txt, f"{duracion_corta(duracion)} de audio")
+        aviso = ficha.get("aviso") if ficha is not None else None
+        evento = {"evento": "terminado", "archivo": str(item["ruta"]), "ruta": ruta_txt,
+                  "duracion": round(duracion, 1), "segundos": round(segundos, 1)}
+        if aviso:
+            evento["aviso"] = aviso
+        self.emitir(id_trabajo, evento, final=True)
+        self.notificar(item["ruta"].name, ruta_txt, f"{duracion_corta(duracion)} de audio", aviso)
         if item["cliente"] is None:            # "al terminar" solo con lo que agregó el usuario
             accion = pref.leer(pref.AL_TERMINAR)
             if accion == "finder":
@@ -963,13 +975,17 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             NSApplication.sharedApplication().requestUserAttention_(ATENCION_INFORMATIVA)
 
     @objc.python_method
-    def notificar(self, nombre, ruta_txt, detalle):
+    def notificar(self, nombre, ruta_txt, detalle, aviso=None):
         """Avisos del sistema según Ajustes. El de la cola resume el lote y
-        sustituye al del último archivo, para no avisar dos veces de lo mismo."""
+        sustituye al del último archivo, para no avisar dos veces de lo mismo.
+        Un archivo transcrito con `aviso` (cortado) avisa como los errores, aparte."""
         cierra_cola = not self.cola and bool(self.lote_listos) and avisos.activo(avisos.COLA)
         if ruta_txt is None:
             if avisos.activo(avisos.ERRORES):
                 avisos.enviar("No se pudo transcribir", f"{nombre}: {detalle}")
+        elif aviso and avisos.activo(avisos.ERRORES):
+            avisos.enviar("Transcripción incompleta",
+                          f"{nombre}: {aviso}. Se transcribió lo que hay ({detalle}).", ruta=ruta_txt)
         elif avisos.activo(avisos.CADA_ARCHIVO) and not cierra_cola:
             titulo = "Subtítulos listos" if ruta_txt.endswith(".srt") else "Transcripción lista"
             avisos.enviar(titulo, f"{nombre} · {detalle}", ruta=ruta_txt)
@@ -1325,7 +1341,7 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
             return {"ficha": f["id"], "archivo": f.get("origen"),
                     "estado": "listo" if ruta else "no_encontrado",
                     "resultado": str(ruta) if ruta else None,
-                    "detalle": f"{duracion_corta(f.get('duracion', 0))} de audio",
+                    "detalle": f.get("aviso") or f"{duracion_corta(f.get('duracion', 0))} de audio",
                     "cliente": f.get("cliente")}
 
         return {"cola": [en_cola(c) for c in self.cola],

@@ -237,6 +237,8 @@ class Historial(NSObject):
             return "No encontrado · se movió o se borró"
         partes = [exportar.fecha_corta(ficha.get("creado")),
                   formatos.duracion_corta(ficha.get("duracion") or 0)]
+        if ficha.get("aviso"):                   # archivo cortado: se transcribió lo que había
+            partes.append("incompleto")
         if ficha.get("coincidencia"):
             partes.append(ficha["coincidencia"])
         else:
