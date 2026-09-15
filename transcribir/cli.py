@@ -188,7 +188,8 @@ def cmd_estado(args) -> int:
     print(f"Terminados ({len(r['terminados'])}):" if r["terminados"] else "Terminados: nada")
     for t in r["terminados"]:
         final = f"→ {t['resultado']}" if t["resultado"] else f"— {t['detalle']}"
-        print(f"  #{t['id']} {Path(t['archivo']).name} [{t['estado']}] {final}")
+        numero = t.get("id") or t.get("ficha")     # errores y cancelados traen id; el historial, su ficha
+        print(f"  #{numero} {Path(t['archivo'] or '').name} [{t['estado']}] {final}")
     a = r["ajustes"]
     destino = "junto al original" if a["guardar"] == "junto" else a["carpeta"]
     print(f"Ajustes: idioma={a['idioma']} precision={a['precision']} formato={a['formato']} → {destino}")

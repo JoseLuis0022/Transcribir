@@ -1347,7 +1347,8 @@ class DelegadoTranscribir(NSObject, protocols=[objc.protocolNamed("UNUserNotific
         return {"cola": [en_cola(c) for c in self.cola],
                 "terminados": [{"id": h["id"], "archivo": h["origen"], "estado": h["tipo"],
                                 "resultado": None, "detalle": h["detalle"], "cliente": h["cliente"]}
-                               for h in self.hechos] + [hecha(f) for f in self.historial[:20]],
+                               for h in self.hechos if h["tipo"] != "ficha"]   # las listas ya van por el historial
+                              + [hecha(f) for f in self.historial[:20]],
                 "historial_total": len(self.historial),
                 "ajustes": pref.todas()}
 
