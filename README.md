@@ -364,7 +364,7 @@ MLX, Sherpa-ONNX y el resto del motor —unos 266 MB— y no conoce ninguna ruta
 Mac donde se construyó. Para dejarla lista para enviar:
 
 ```sh
-./scripts/hacer-dmg.sh          # -> dist/Transcribir-1.2.2.dmg (~51 MB)
+./scripts/hacer-dmg.sh          # -> dist/Transcribir-1.2.3.dmg (~51 MB)
 ```
 
 La imagen de disco trae la app, un acceso directo a Applications y un

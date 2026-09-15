@@ -404,6 +404,26 @@ def parser_subcomandos() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    """Siempre termina con un código de salida: una excepción que llegara al arranque
+    de py2app lo dejaría colgado con «Launch error» en vez de salir."""
+    try:
+        codigo = ejecutar(argv)
+        sys.stdout.flush()          # si quien lee ya cerró, que salte aquí y no al salir
+        return codigo
+    except BrokenPipeError:         # `transcribir estado --json | head`: quien leía ya no quiere más
+        nulo = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(nulo, sys.stdout.fileno())
+        os.dup2(nulo, sys.stderr.fileno())
+        return 141                  # lo habitual en Unix al morir por SIGPIPE
+    except Exception as e:
+        try:
+            print(f"transcribir: error inesperado ({type(e).__name__}: {e})", file=sys.stderr)
+        except OSError:
+            pass
+        return 1
+
+
+def ejecutar(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help", "ayuda"):
         sys.stdout.write(AYUDA)

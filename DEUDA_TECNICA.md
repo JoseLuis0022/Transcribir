@@ -7,18 +7,24 @@
 
 ## Pendientes
 
-### 2. El comando se queda colgado si se cierra la tubería de salida
-
-- **Detectado:** 14 de septiembre de 2026, en la versión 1.2.2 (ya pasaba en la 1.2.1: la línea que falla no cambió).
-- **Gravedad:** baja. Solo pasa si otro programa deja de leer la salida antes de tiempo, pero a un agente o a un script le deja un proceso colgado.
-- **Síntoma:** `transcribir estado --json | true` imprime `BrokenPipeError: [Errno 32] Broken pipe` y `Launch error / See the py2app website for debugging launch issues`, y el proceso `Transcribir --cli estado --json` **no termina** (hay que matarlo).
-- **Causa probable:** `print` en `cli.py` lanza `BrokenPipeError` cuando el lector ya cerró. La excepción llega sin atrapar al `__boot__.py` de py2app, que la trata como error de arranque y no sale.
-- **Arreglo propuesto:** en `cli.main` (o en `principal.py` con `--cli`), atrapar `BrokenPipeError`, redirigir `stdout` a `os.devnull` y salir con código 141 (lo normal en Unix con SIGPIPE). De paso, revisar que ninguna otra excepción sin atrapar llegue a py2app: el comando siempre debe terminar con un mensaje corto y un código de salida.
-- **Cómo probarlo:** `transcribir estado --json | true` y `transcribir historial --json | head -c 10` deben terminar al momento, sin traceback.
+_(nada por ahora)_
 
 ---
 
 ## Resueltos
+
+### 2. El comando se queda colgado si se cierra la tubería de salida — resuelto en la 1.2.3
+
+- **Detectado:** 14 de septiembre de 2026, en la versión 1.2.2 (ya pasaba en la 1.2.1).
+- **Síntoma:** `transcribir estado --json | true` imprimía `BrokenPipeError: [Errno 32] Broken pipe` y `Launch error / See the py2app website for debugging launch issues`, y el proceso `Transcribir --cli estado --json` no terminaba (había que matarlo).
+- **Causa:** `print` en `cli.py` lanza `BrokenPipeError` cuando quien lee ya cerró. La excepción llegaba sin atrapar al `__boot__.py` de py2app, que la trata como error de arranque y se queda sin salir. Cualquier otra excepción inesperada del comando tenía el mismo efecto.
+- **Arreglo:** `cli.main` envuelve todo el comando (ahora en `ejecutar`) y vacía `stdout` dentro del `try`. Con `BrokenPipeError`, redirige `stdout` y `stderr` a `os.devnull` y sale con 141, como en Unix con SIGPIPE. Con cualquier otra excepción, imprime `transcribir: error inesperado (Tipo: mensaje)` y sale con 1. Nada llega ya al arranque de py2app.
+- **Pruebas:**
+  - Desde el código y con la 1.2.3 instalada: `estado`, `estado --json`, `historial`, `historial --json`, `guia` y `ajustes --json`, cada uno con `| head -c 5` y `| true`. Todos terminan al momento, sin traceback (141 cuando se corta la tubería).
+  - Sin cortar, la salida sigue completa: `estado` sale con 0 y `estado --json` es JSON válido.
+  - Una excepción simulada en un comando sale con 1 y un mensaje corto.
+  - `transcribir ARCHIVO --json | head -1` en medio de una transcripción: el comando sale, no queda colgado y el trabajo sigue en la cola de la app (luego se canceló con `transcribir cancelar`).
+  - Siguen igual: los códigos de salida de un archivo que no es audio (1) y de una ficha inexistente (1), `cancelar` y `estado`.
 
 ### 1. `transcribir estado` falla con `'id'` — resuelto en la 1.2.2
 
